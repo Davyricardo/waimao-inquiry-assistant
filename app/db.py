@@ -99,10 +99,10 @@ def connect() -> sqlite3.Connection:
 
 @contextmanager
 def tx():
-    """事务上下文：正常提交，异常回滚。"""
+    """事务上下文：正常提交，异常回滚。使用 BEGIN IMMEDIATE 避免并发升级写锁导致死锁。"""
     conn = connect()
     try:
-        conn.execute("BEGIN")
+        conn.execute("BEGIN IMMEDIATE")
         yield conn
         conn.execute("COMMIT")
     except Exception:
@@ -178,10 +178,36 @@ MIGRATIONS = {
         ("pi_date", "TEXT"),
         ("ci_date", "TEXT"),
     ],
+    "vouchers": [
+        ("ocr_raw_text", "TEXT"),
+        ("notes", "TEXT"),
+    ],
 }
 
 POST_MIGRATE_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_contacts_cred ON contacts(credibility)",
+    "CREATE INDEX IF NOT EXISTS idx_vouchers_no ON vouchers(voucher_no)",
+    "CREATE INDEX IF NOT EXISTS idx_vouchers_type ON vouchers(voucher_type)",
+    "CREATE INDEX IF NOT EXISTS idx_vouchers_date ON vouchers(trade_date DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_vouchers_status ON vouchers(status)",
+    """CREATE TABLE IF NOT EXISTS ai_logs (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts                INTEGER NOT NULL,
+        model             TEXT NOT NULL,
+        purpose           TEXT NOT NULL,
+        prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+        completion_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens      INTEGER NOT NULL DEFAULT 0,
+        cost_usd          REAL NOT NULL DEFAULT 0.0,
+        cost_rmb          REAL NOT NULL DEFAULT 0.0,
+        latency_ms        INTEGER,
+        message_id        INTEGER,
+        contact_id        INTEGER,
+        status            TEXT NOT NULL DEFAULT 'ok',
+        error_msg         TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_ai_logs_ts ON ai_logs(ts DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_ai_logs_purpose ON ai_logs(purpose, ts DESC)",
 ]
 
 

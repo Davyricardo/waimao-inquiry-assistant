@@ -298,6 +298,32 @@ class AuditLog(Base):
 
 
 # ============================================================
+# ai_logs — 大模型调用与 Token 测算日志
+# ============================================================
+class AiLog(Base):
+    __tablename__ = "ai_logs"
+    __table_args__ = (
+        Index("idx_ai_logs_ts", "ts"),
+        Index("idx_ai_logs_purpose", "purpose", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[int] = mapped_column(Integer, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cost_rmb: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    message_id: Mapped[Optional[int]] = mapped_column(Integer)
+    contact_id: Mapped[Optional[int]] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="ok")
+    error_msg: Mapped[Optional[str]] = mapped_column(Text)
+
+
+# ============================================================
 # settings — 键值配置
 # ============================================================
 class Setting(Base):
@@ -601,3 +627,42 @@ class SocialTouchpoint(Base):
     created_ts: Mapped[int] = mapped_column(Integer, nullable=False)
 
     lead: Mapped["SocialLead"] = relationship(back_populates="touchpoints")
+
+
+# ============================================================
+# vouchers — 外贸单证与凭证管理
+# ============================================================
+class Voucher(Base):
+    __tablename__ = "vouchers"
+    __table_args__ = (
+        Index("idx_vouchers_no", "voucher_no"),
+        Index("idx_vouchers_type", "voucher_type"),
+        Index("idx_vouchers_date", "trade_date"),
+        Index("idx_vouchers_contact", "contact_id"),
+        Index("idx_vouchers_order", "order_id"),
+        Index("idx_vouchers_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    voucher_no: Mapped[str] = mapped_column(Text, nullable=False)
+    voucher_type: Mapped[str] = mapped_column(Text, nullable=False, default="commercial_invoice")
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    trade_date: Mapped[Optional[str]] = mapped_column(Text)
+    currency: Mapped[str] = mapped_column(Text, nullable=False, default="USD")
+    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    contact_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("contacts.id", ondelete="SET NULL")
+    )
+    order_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("orders.id", ondelete="SET NULL")
+    )
+    shipper: Mapped[Optional[str]] = mapped_column(Text)
+    consignee: Mapped[Optional[str]] = mapped_column(Text)
+    product_desc: Mapped[Optional[str]] = mapped_column(Text)
+    file_path: Mapped[Optional[str]] = mapped_column(Text)
+    ocr_status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    ocr_raw_text: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="confirmed")
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    created_ts: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_ts: Mapped[int] = mapped_column(Integer, nullable=False)

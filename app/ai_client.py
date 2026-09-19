@@ -15,11 +15,61 @@
 """
 import json
 import re
+import time
 from typing import Optional
 
 import httpx
 
 from . import crypto_util, db
+
+# ============ Token 计费基准 (基于 DeepSeek 官方定价与美元汇率) ============
+# DeepSeek 官方标准单价：输入 $0.27 / 1M Tokens，输出 $1.10 / 1M Tokens
+COST_PROMPT_PER_MILLION = 0.27
+COST_COMPLETION_PER_MILLION = 1.10
+USD_TO_RMB_RATE = 7.2
+
+
+def calculate_cost(prompt_tokens: int, completion_tokens: int) -> tuple[float, float]:
+    """计算 USD 和 RMB 费用。返回 (cost_usd, cost_rmb)。"""
+    usd = (prompt_tokens * COST_PROMPT_PER_MILLION + completion_tokens * COST_COMPLETION_PER_MILLION) / 1_000_000.0
+    rmb = usd * USD_TO_RMB_RATE
+    return round(usd, 6), round(rmb, 6)
+
+
+def record_ai_usage(
+    model: str,
+    purpose: str,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    total_tokens: int = 0,
+    latency_ms: Optional[int] = None,
+    message_id: Optional[int] = None,
+    contact_id: Optional[int] = None,
+    status: str = "ok",
+    error_msg: Optional[str] = None,
+) -> None:
+    """将 AI 调用明细和 Token 计费记录写入 ai_logs 表。绝不抛异常。"""
+    try:
+        if total_tokens <= 0 and (prompt_tokens > 0 or completion_tokens > 0):
+            total_tokens = prompt_tokens + completion_tokens
+        cost_usd, cost_rmb = calculate_cost(prompt_tokens, completion_tokens)
+        ts = db.now_ts()
+        with db.tx() as conn:
+            conn.execute(
+                """INSERT INTO ai_logs (
+                    ts, model, purpose, prompt_tokens, completion_tokens, total_tokens,
+                    cost_usd, cost_rmb, latency_ms, message_id, contact_id, status, error_msg
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    ts, model or "unknown", purpose or "general",
+                    int(prompt_tokens or 0), int(completion_tokens or 0), int(total_tokens or 0),
+                    cost_usd, cost_rmb, latency_ms, message_id, contact_id,
+                    status or "ok", error_msg,
+                ),
+            )
+    except Exception:
+        pass
+
 
 # ============ 凭据解析 ============
 
@@ -34,46 +84,84 @@ DEFAULT_MODEL    = "deepseek-chat"
 # 常见服务商预设，设置页下拉用
 AI_PRESETS = {
     "deepseek": {
-        "label": "DeepSeek（推荐，性价比高）",
+        "label": "DeepSeek（深度求索 · 推荐）",
         "base_url": "https://api.deepseek.com",
         "model": "deepseek-chat",
         "key_url": "https://platform.deepseek.com/api_keys",
-        "hint": "国内直连稳定，中文能力好，价格低。注册后在「API Keys」页面创建。",
-    },
-    "openai": {
-        "label": "OpenAI",
-        "base_url": "https://api.openai.com/v1",
-        "model": "gpt-4o-mini",
-        "key_url": "https://platform.openai.com/api-keys",
-        "hint": "需要境外网络环境。服务器若在国内可能连不上。",
+        "portal_name": "DeepSeek 开放平台",
+        "hint": "国内直连极速稳定，推理与中文能力出众，性价比极高。推荐作为外贸助手首选主力模型。",
     },
     "dashscope": {
-        "label": "阿里云百炼（通义千问）",
+        "label": "阿里云百炼（通义千问 Qwen）",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model": "qwen-plus",
-        "key_url": "https://bailian.console.aliyun.com/",
-        "hint": "阿里云账号直接开通，兼容 OpenAI 格式，国内节点快。",
+        "key_url": "https://bailian.console.aliyun.com/?apiKey=1#/api-key",
+        "portal_name": "阿里云百炼大模型控制台",
+        "hint": "阿里云账号直接开通，国内直连毫秒级响应，兼容 OpenAI 规范。新用户赠送大额免费 Token。",
+    },
+    "hunyuan": {
+        "label": "腾讯混元（Tencent Hunyuan）",
+        "base_url": "https://api.hunyuan.cloud.tencent.com/v1",
+        "model": "hunyuan-standard",
+        "key_url": "https://console.cloud.tencent.com/hunyuan/api-key",
+        "portal_name": "腾讯云混元大模型控制台",
+        "hint": "腾讯云官方混元大模型，原生兼容 OpenAI 接口。在腾讯云控制台「API-KEY 管理」页面一键创建。",
     },
     "moonshot": {
-        "label": "月之暗面 Kimi",
+        "label": "月之暗面（Moonshot Kimi）",
         "base_url": "https://api.moonshot.cn/v1",
         "model": "moonshot-v1-8k",
         "key_url": "https://platform.moonshot.cn/console/api-keys",
-        "hint": "长文本能力强，适合邮件这种中长文本。",
+        "portal_name": "Moonshot 开放平台",
+        "hint": "长文本与上下文理解能力优异，特别适合复杂外贸长信摘要与买家背景推理。",
     },
     "zhipu": {
-        "label": "智谱 GLM",
+        "label": "智谱 AI（GLM-4）",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
         "model": "glm-4-flash",
         "key_url": "https://open.bigmodel.cn/usercenter/apikeys",
-        "hint": "glm-4-flash 有免费额度，适合先试。",
+        "portal_name": "智谱大模型开放平台",
+        "hint": "glm-4-flash 模型提供长期免费调用额度，多语种支持优秀，适合中小外贸企业零成本跑通。",
+    },
+    "qianfan": {
+        "label": "百度千帆（文心一言 ERNIE）",
+        "base_url": "https://qianfan.baidubce.com/v2",
+        "model": "ernie-speed-128k",
+        "key_url": "https://console.bce.baidu.com/qianfan/ais/console/onlineService",
+        "portal_name": "百度智能云千帆平台",
+        "hint": "百度千帆平台支持 OpenAI 兼容 API 规范。在千帆控制台「在线服务」申请并创建密钥。",
+    },
+    "minimax": {
+        "label": "MiniMax（海螺 AI）",
+        "base_url": "https://api.minimax.chat/v1",
+        "model": "abab6.5s-chat",
+        "key_url": "https://platform.minimaxi.com/user-center/basic-information/interface-key",
+        "portal_name": "MiniMax 开放平台",
+        "hint": "MiniMax 开放平台支持 OpenAI 接口规范，在「开放平台 - 账户中心 - 接口密钥」创建专属 API Key。",
+    },
+    "yi": {
+        "label": "零一万物（01.AI）",
+        "base_url": "https://api.lingyiwanwu.com/v1",
+        "model": "yi-lightning",
+        "key_url": "https://platform.lingyiwanwu.com/apikeys",
+        "portal_name": "零一万物开放平台",
+        "hint": "李开复创立的零一万物大模型，在开放平台「API 密钥管理」创建，具备出色的双语商业理解力。",
+    },
+    "openai": {
+        "label": "OpenAI（ChatGPT）",
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+        "key_url": "https://platform.openai.com/api-keys",
+        "portal_name": "OpenAI Platform Dashboard",
+        "hint": "国际顶级通用模型。注意：需部署于境外服务器或具备海外网络环境，国内直连可能超时。",
     },
     "custom": {
-        "label": "自定义（兼容 OpenAI 格式）",
+        "label": "自定义服务商（兼容 OpenAI 规范）",
         "base_url": "",
         "model": "",
         "key_url": "",
-        "hint": "填任何兼容 /chat/completions 的服务地址即可。",
+        "portal_name": "本地部署或自建代理",
+        "hint": "填入任何兼容 OpenAI /v1/chat/completions 规范的 API 服务地址（例如 Ollama、vLLM、OneAPI 等）。",
     },
 }
 
@@ -225,7 +313,8 @@ def _parse_response(data: dict) -> Optional[str]:
 # ============ 同步调用（Worker / 流水线后台任务） ============
 
 def chat(messages: list, max_tokens: int = 800, temperature: float = 0.2,
-         timeout: int = 60) -> Optional[str]:
+         timeout: int = 60, purpose: str = "general",
+         message_id: Optional[int] = None, contact_id: Optional[int] = None) -> Optional[str]:
     """同步调用模型，返回正文文本。任何失败返回 None，由调用方降级。"""
     if not is_enabled():
         return None
@@ -233,7 +322,9 @@ def chat(messages: list, max_tokens: int = 800, temperature: float = 0.2,
     if not key:
         return None
 
+    model = get_model()
     payload = _build_payload(messages, max_tokens, temperature)
+    t0 = time.time()
     try:
         with _sync_client(timeout) as client:
             resp = client.post(
@@ -242,16 +333,38 @@ def chat(messages: list, max_tokens: int = 800, temperature: float = 0.2,
                 headers=_build_headers(),
             )
             resp.raise_for_status()
-            return _parse_response(resp.json())
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError,
-            OSError, ValueError, UnicodeEncodeError):
+            data = resp.json()
+            latency_ms = int((time.time() - t0) * 1000)
+            usage = data.get("usage") or {}
+            prompt_tokens = usage.get("prompt_tokens") or 0
+            completion_tokens = usage.get("completion_tokens") or 0
+            total_tokens = usage.get("total_tokens") or (prompt_tokens + completion_tokens)
+            record_ai_usage(
+                model=model, purpose=purpose,
+                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                total_tokens=total_tokens, latency_ms=latency_ms,
+                message_id=message_id, contact_id=contact_id,
+                status="ok",
+            )
+            return _parse_response(data)
+    except Exception as e:
+        latency_ms = int((time.time() - t0) * 1000)
+        record_ai_usage(
+            model=model, purpose=purpose,
+            prompt_tokens=0, completion_tokens=0, total_tokens=0,
+            latency_ms=latency_ms, message_id=message_id, contact_id=contact_id,
+            status="error", error_msg=f"{type(e).__name__}: {str(e)[:300]}",
+        )
         return None
 
 
 # ============ 异步调用（FastAPI 路由，不阻塞事件循环） ============
 
 async def chat_async(messages: list, max_tokens: int = 800,
-                     temperature: float = 0.2, timeout: int = 60) -> Optional[str]:
+                     temperature: float = 0.2, timeout: int = 60,
+                     purpose: str = "general",
+                     message_id: Optional[int] = None,
+                     contact_id: Optional[int] = None) -> Optional[str]:
     """异步调用模型。在 FastAPI 路由中 await 此函数，避免阻塞事件循环。"""
     if not is_enabled():
         return None
@@ -259,7 +372,9 @@ async def chat_async(messages: list, max_tokens: int = 800,
     if not key:
         return None
 
+    model = get_model()
     payload = _build_payload(messages, max_tokens, temperature)
+    t0 = time.time()
     try:
         async with _async_client(timeout) as client:
             resp = await client.post(
@@ -268,9 +383,28 @@ async def chat_async(messages: list, max_tokens: int = 800,
                 headers=_build_headers(),
             )
             resp.raise_for_status()
-            return _parse_response(resp.json())
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError,
-            OSError, ValueError, UnicodeEncodeError):
+            data = resp.json()
+            latency_ms = int((time.time() - t0) * 1000)
+            usage = data.get("usage") or {}
+            prompt_tokens = usage.get("prompt_tokens") or 0
+            completion_tokens = usage.get("completion_tokens") or 0
+            total_tokens = usage.get("total_tokens") or (prompt_tokens + completion_tokens)
+            record_ai_usage(
+                model=model, purpose=purpose,
+                prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                total_tokens=total_tokens, latency_ms=latency_ms,
+                message_id=message_id, contact_id=contact_id,
+                status="ok",
+            )
+            return _parse_response(data)
+    except Exception as e:
+        latency_ms = int((time.time() - t0) * 1000)
+        record_ai_usage(
+            model=model, purpose=purpose,
+            prompt_tokens=0, completion_tokens=0, total_tokens=0,
+            latency_ms=latency_ms, message_id=message_id, contact_id=contact_id,
+            status="error", error_msg=f"{type(e).__name__}: {str(e)[:300]}",
+        )
         return None
 
 
@@ -298,7 +432,7 @@ def test_connection() -> tuple[bool, str]:
 
     try:
         raw = chat([{"role": "user", "content": "回复两个字：正常"}],
-                   max_tokens=400, timeout=45)
+                   max_tokens=400, timeout=45, purpose="test")
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
     if raw:
@@ -313,7 +447,7 @@ async def test_connection_async() -> tuple[bool, str]:
         return False, "尚未填写 API Key"
     try:
         raw = await chat_async([{"role": "user", "content": "回复两个字：正常"}],
-                                max_tokens=400, timeout=45)
+                                max_tokens=400, timeout=45, purpose="test")
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
     if raw:

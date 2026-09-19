@@ -11,16 +11,18 @@
 - company    : GET/POST /company
 - settings   : GET/POST /settings、/rules、/templates、/review
 """
-from . import company, contacts, dashboard, freight, messages, orders, products, settings, social
+from . import company, contacts, dashboard, freight, logs, messages, orders, products, settings, social, vouchers
 
 __all__ = [
     "dashboard",
     "messages",
     "contacts",
     "orders",
+    "vouchers",
     "freight",
     "products",
     "social",
     "company",
+    "logs",
     "settings",
 ]

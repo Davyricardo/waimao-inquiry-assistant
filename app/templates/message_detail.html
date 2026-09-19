@@ -8,9 +8,46 @@
       · {{{ ts_full(m.sent_ts) }}}
     </p>
   </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <a class="btn sm" href="/messages">返回列表</a>
-    <a class="btn sm" href="/contacts/{{ m.contact_id }}">查看客户</a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <a class="btn sm" href="/review">← 返回审核台</a>
+    <a class="btn sm" href="/messages" style="color:var(--text-3);" title="返回询盘列表">邮件列表</a>
+    <div class="contact-sub-menu-wrap" style="position:relative;display:inline-block;">
+      <button class="btn sm primary" type="button" onclick="toggleContactSubMenu(event)">
+        👤 查看客户 ▾
+      </button>
+      <div id="contactSubMenu" class="card" style="display:none;position:absolute;right:0;top:calc(100% + 8px);width:340px;z-index:200;box-shadow:var(--shadow-lg);padding:14px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);text-align:left;">
+        {% if matched_contact and matched_contact.id %}
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+            <div>
+              <div style="font-weight:600;font-size:15px;color:var(--text-1);">{{ matched_contact.name or m.contact_name or m.from_addr }}</div>
+              <div style="font-size:12px;color:var(--text-2);margin-top:2px;">{{ matched_contact.company or '暂未填公司主体' }}</div>
+            </div>
+            <span class="tag ok">{{ matched_contact.stage or 'new' }}</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-2);display:flex;flex-direction:column;gap:6px;margin-bottom:12px;background:var(--surface-2);padding:10px;border-radius:var(--radius-sm);">
+            <div>📧 邮箱：<b>{{ matched_contact.email or m.from_addr }}</b></div>
+            {% if matched_contact.phone %}<div>📞 电话/WhatsApp：{{ matched_contact.phone }}</div>{% endif %}
+            {% if matched_contact.country %}<div>🌍 国家/地区：{{ matched_contact.country }}</div>{% endif %}
+            <div>⭐ 客户意向分：<span class="score sm hi">{{ matched_contact.score or m.score or 0 }}</span></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;">
+            <a class="btn sm primary" href="/contacts/{{ matched_contact.id }}">进入客户主页 →</a>
+          </div>
+        {% else %}
+          <div class="alert warn" style="margin-bottom:8px;padding:8px 10px;font-size:12px;">
+            ⚠️ 暂无客户信息（检测为新客户线索）
+          </div>
+          <p style="font-size:12px;color:var(--text-2);margin-bottom:12px;line-height:1.5;">
+            发件人 <b>{{ m.from_addr }}</b> 尚未录入客户管理档案。
+          </p>
+          <div style="display:flex;justify-content:flex-end;">
+            <button class="btn sm primary" type="button" onclick="openFastCreateContactModal()">
+              + 新增客户信息
+            </button>
+          </div>
+        {% endif %}
+      </div>
+    </div>
   </div>
 </div>
 
@@ -169,3 +206,89 @@
     </div>
   </div>
 </div>
+
+<!-- 快速新增客户弹窗 -->
+<div id="fastContactModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div class="card" style="width:100%;max-width:520px;margin:20px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-xl);border:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <h3 style="margin:0;font-size:16px;">快速录入客户档案</h3>
+      <button type="button" class="btn sm" onclick="closeFastCreateContactModal()" style="padding:2px 8px;">✕</button>
+    </div>
+    <form method="post" action="/contacts">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">客户姓名 *</label>
+          <input type="text" name="name" id="fc_name" required value="{{ m.contact_name or '' }}" placeholder="如 David Miller">
+        </div>
+        <div>
+          <label class="field">电子邮箱 *</label>
+          <input type="email" name="email" id="fc_email" required value="{{ m.from_addr or '' }}">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">公司名称</label>
+          <input type="text" name="company" id="fc_company" value="{{ m.company or '' }}" placeholder="如 Apex Hardware Ltd">
+        </div>
+        <div>
+          <label class="field">国家 / 地区</label>
+          <input type="text" name="country" id="fc_country" value="{{ m.country or '' }}" placeholder="如 Germany / 德国">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">联系电话 / WhatsApp</label>
+          <input type="text" name="phone" placeholder="如 +49 89 12345678">
+        </div>
+        <div>
+          <label class="field">初始跟进阶段</label>
+          <select name="stage">
+            <option value="new" selected>新客户 (new)</option>
+            <option value="engaging">沟通中 (engaging)</option>
+            <option value="quoted">已报价 (quoted)</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:14px;">
+        <label class="field">线索备忘 / 背景摘要</label>
+        <textarea name="notes" rows="3" placeholder="来自询盘邮件线索：{{ m.subject }}">{{ m.summary_cn or '' }}</textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button class="btn" type="button" onclick="closeFastCreateContactModal()">取消</button>
+        <button class="btn primary" type="submit">保存并存入客户库</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function toggleContactSubMenu(e) {
+  if (e) e.stopPropagation();
+  var menu = document.getElementById('contactSubMenu');
+  if (!menu) return;
+  menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+}
+
+document.addEventListener('click', function(e) {
+  var menu = document.getElementById('contactSubMenu');
+  if (menu && menu.style.display === 'block') {
+    var wrap = document.querySelector('.contact-sub-menu-wrap');
+    if (wrap && !wrap.contains(e.target)) {
+      menu.style.display = 'none';
+    }
+  }
+});
+
+function openFastCreateContactModal() {
+  var menu = document.getElementById('contactSubMenu');
+  if (menu) menu.style.display = 'none';
+  var modal = document.getElementById('fastContactModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeFastCreateContactModal() {
+  var modal = document.getElementById('fastContactModal');
+  if (modal) modal.style.display = 'none';
+}
+</script>

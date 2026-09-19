@@ -61,13 +61,15 @@ def _ai_context() -> dict:
             "configured": key_ok, "enabled": ai_client.is_enabled(),
             "base_url": base, "model": ai_client.get_model(),
             "preset": preset,
-            "preset_label": ai_client.AI_PRESETS.get(preset, {}).get("label", "自定义"),
+            "preset_label": cur.get("label", "自定义"),
+            "portal_name": cur.get("portal_name", "官方开放平台"),
             "key_masked": crypto_util.mask_secret(key),
             "key_plain": key, "key_ok": key_ok,
             "key_unreadable": bool(enc) and not key_ok,
             "key_from_env": (not enc) and bool(key),
             "key_len": len(key),
             "key_url": cur.get("key_url", ""),
+            "hint": cur.get("hint", ""),
         },
     }
 
@@ -113,10 +115,62 @@ def settings_page(request: Request, ok: str = "", err: str = "", test: str = "")
         accounts=accounts,
         settings=queries.list_settings(),
         seller_profile=queries.get_seller_profile(),
+        admin_user=auth.get_admin_user(),
+        has_security_question=auth.has_security_question(),
+        security_question=auth.get_security_question(),
+        preset_security_questions=auth.PRESET_SECURITY_QUESTIONS,
         ok=ok, err=err, test=test,
         csrf=auth.csrf_token(request.cookies.get(COOKIE, "")),
         presets=MAIL_PRESETS, presets_json=json.dumps(MAIL_PRESETS, ensure_ascii=False),
         **_ai_context()))
+
+
+@router.post("/settings/admin/credentials")
+def settings_admin_credentials(
+    request: Request,
+    current_password: str = Form(""),
+    security_answer: str = Form(""),
+    new_username: str = Form(""),
+    new_password: str = Form(""),
+    confirm_password: str = Form(""),
+    new_security_question: str = Form(""),
+    new_security_question_custom: str = Form(""),
+    new_security_answer: str = Form(""),
+    csrf_tok: str = Form(""),
+):
+    if not check_csrf(request, csrf_tok):
+        return RedirectResponse("/settings?err=" + quote("请求校验失败"), status_code=303)
+
+    if new_password and new_password != confirm_password:
+        return RedirectResponse("/settings?err=" + quote("两次输入的新密码不一致，请重新输入"), status_code=303)
+
+    target_question = (new_security_question or "").strip()
+    if target_question == "自定义密保问题" and new_security_question_custom.strip():
+        target_question = new_security_question_custom.strip()
+
+    ok, msg, updated_user = auth.update_admin_credentials(
+        current_password=current_password,
+        security_answer=security_answer,
+        new_username=new_username,
+        new_password=new_password,
+        new_security_question=target_question,
+        new_security_answer=new_security_answer,
+    )
+    if not ok:
+        queries.log(auth.get_admin_user(), "admin_credentials_fail", detail=msg)
+        return RedirectResponse("/settings?err=" + quote(msg), status_code=303)
+
+    queries.log(updated_user, "admin_credentials_update", detail=f"username={updated_user}")
+    resp = RedirectResponse("/settings?ok=" + quote(msg), status_code=303)
+    resp.set_cookie(
+        COOKIE,
+        auth.make_session(updated_user),
+        httponly=True,
+        samesite="lax",
+        max_age=config.SESSION_TTL,
+        path="/",
+    )
+    return resp
 
 
 @router.post("/settings/ai")
@@ -129,7 +183,7 @@ def settings_ai(request: Request, api_key: str = Form(""),
         return RedirectResponse("/settings?err=" + quote("API 地址不能为空"), status_code=303)
     ai_client.save_credentials(
         api_key if api_key.strip() else None, base_url, model, enabled == "1")
-    queries.log(config.ADMIN_USER, "settings_ai", detail=f"model={model}")
+    queries.log(auth.get_admin_user(), "settings_ai", detail=f"model={model}")
     return RedirectResponse("/settings?ok=" + quote("AI 配置已保存"), status_code=303)
 
 
@@ -327,10 +381,9 @@ def account_test(request: Request, csrf_tok: str = Form(""),
     return RedirectResponse("/settings?test=" + quote(res), status_code=303)
 
 
-# ============ 审核台 ============
-
 @router.get("/review", response_class=HTMLResponse)
 def review_page(request: Request, ok: str = "", err: str = ""):
+    queries.clean_invalid_pending_drafts()
     drafts = queries.pending_drafts()
     return HTMLResponse(render(
         "review.html", drafts=drafts, ok=ok, err=err, high=config.HIGH_INTENT,
@@ -340,15 +393,28 @@ def review_page(request: Request, ok: str = "", err: str = ""):
 @router.post("/review/{did}")
 def review_action(request: Request, did: int, action: str = Form(""),
                   final_text: str = Form(""), csrf_tok: str = Form("")):
-    if not check_csrf(request, csrf_tok):
-        return RedirectResponse("/review?err=" + quote("请求校验失败，请重试"), status_code=303)
+    referer = request.headers.get("referer", "")
     with db.ro() as conn:
         d = conn.execute("SELECT * FROM drafts WHERE id=?", (did,)).fetchone()
         m = conn.execute("SELECT * FROM messages WHERE id=?",
                          (d["message_id"],)).fetchone() if d else None
-        acct = conn.execute("SELECT * FROM accounts ORDER BY id LIMIT 1").fetchone()
+        acct = None
+        if m and m["account_id"]:
+            acct = conn.execute("SELECT * FROM accounts WHERE id=?", (m["account_id"],)).fetchone()
+        if not acct:
+            acct = conn.execute("SELECT * FROM accounts WHERE is_active=1 ORDER BY id LIMIT 1").fetchone()
+        if not acct:
+            acct = conn.execute("SELECT * FROM accounts ORDER BY id LIMIT 1").fetchone()
+
+    back_base = f"/messages/{d['message_id']}" if (d and "/messages/" in referer) else "/review"
+
+    if not check_csrf(request, csrf_tok):
+        return RedirectResponse(f"{back_base}?err=" + quote("请求校验失败，请重试"), status_code=303)
+
     if not d:
-        return RedirectResponse("/review?err=" + quote("草稿不存在"), status_code=303)
+        return RedirectResponse(f"{back_base}?err=" + quote("草稿不存在"), status_code=303)
+    if not m:
+        return RedirectResponse(f"{back_base}?err=" + quote("关联的原邮件记录不存在"), status_code=303)
 
     body = (final_text or "").strip() or d["body_text"]
 
@@ -360,7 +426,7 @@ def review_action(request: Request, did: int, action: str = Form(""),
             conn.execute("UPDATE messages SET status='rejected' WHERE id=?",
                          (d["message_id"],))
         queries.log(config.ADMIN_USER, "draft_reject", "draft", did)
-        return RedirectResponse("/review?ok=" + quote("已否决该草稿"), status_code=303)
+        return RedirectResponse(f"{back_base}?ok=" + quote("已否决该草稿"), status_code=303)
 
     if action == "approve":
         with db.tx() as conn:
@@ -370,34 +436,44 @@ def review_action(request: Request, did: int, action: str = Form(""),
             conn.execute("UPDATE messages SET status='approved' WHERE id=?",
                          (d["message_id"],))
         queries.log(config.ADMIN_USER, "draft_approve", "draft", did)
-        return RedirectResponse("/review?ok=" + quote("已通过，待发送"), status_code=303)
+        return RedirectResponse(f"{back_base}?ok=" + quote("已通过，待发送"), status_code=303)
 
     if action == "send":
         if not acct:
-            return RedirectResponse("/review?err=" + quote("未配置邮箱账户"), status_code=303)
-        ok, info = sender.send_mail(
-            dict(acct), m["from_addr"], d["subject"], body,
-            reply_to_msgid=m["msgid"], references=m["refs"])
-        if ok:
-            from .. import mail_engine
-            mail_engine.record_outgoing(acct["id"], m["contact_id"],
-                                        m["thread_id"], m["from_addr"],
-                                        d["subject"], body, info)
-            with db.tx() as conn:
-                conn.execute("UPDATE drafts SET status='sent',final_text=?,"
-                             "reviewed_ts=?,reviewed_by=?,sent_ts=? WHERE id=?",
-                             (body, db.now_ts(), config.ADMIN_USER, db.now_ts(), did))
-                conn.execute("UPDATE messages SET status='auto_sent' WHERE id=?",
-                             (d["message_id"],))
-            queries.log(config.ADMIN_USER, "draft_send", "draft", did,
-                        detail=f"to={m['from_addr']}")
-            return RedirectResponse("/review?ok=" + quote("已发送"), status_code=303)
-        with db.tx() as conn:
-            conn.execute("UPDATE drafts SET send_error=? WHERE id=?", (info, did))
-        queries.log(config.ADMIN_USER, "draft_send_fail", "draft", did, detail=info)
-        return RedirectResponse("/review?err=" + quote(info), status_code=303)
+            return RedirectResponse(f"{back_base}?err=" + quote("未配置邮箱账户或没有已启用的发件邮箱"), status_code=303)
+        if not m["from_addr"]:
+            return RedirectResponse(f"{back_base}?err=" + quote("原邮件发件人地址为空，无法发信"), status_code=303)
 
-    return RedirectResponse("/review?err=" + quote("未知操作"), status_code=303)
+        try:
+            ok, info = sender.send_mail(
+                dict(acct), m["from_addr"], d["subject"], body,
+                reply_to_msgid=m["msgid"], references=m["refs"])
+            if ok:
+                from .. import mail_engine
+                mail_engine.record_outgoing(acct["id"], m["contact_id"],
+                                            m["thread_id"], m["from_addr"],
+                                            d["subject"], body, info)
+                with db.tx() as conn:
+                    conn.execute("UPDATE drafts SET status='sent',final_text=?,"
+                                 "reviewed_ts=?,reviewed_by=?,sent_ts=? WHERE id=?",
+                                 (body, db.now_ts(), config.ADMIN_USER, db.now_ts(), did))
+                    conn.execute("UPDATE messages SET status='auto_sent' WHERE id=?",
+                                 (d["message_id"],))
+                queries.log(config.ADMIN_USER, "draft_send", "draft", did,
+                            detail=f"to={m['from_addr']}")
+                return RedirectResponse(f"{back_base}?ok=" + quote("邮件已成功发送"), status_code=303)
+            with db.tx() as conn:
+                conn.execute("UPDATE drafts SET send_error=? WHERE id=?", (info, did))
+            queries.log(config.ADMIN_USER, "draft_send_fail", "draft", did, detail=info)
+            return RedirectResponse(f"{back_base}?err=" + quote(f"发送失败: {info}"), status_code=303)
+        except Exception as exc:
+            err_msg = f"发送邮件异常: {type(exc).__name__}: {exc}"
+            with db.tx() as conn:
+                conn.execute("UPDATE drafts SET send_error=? WHERE id=?", (err_msg, did))
+            queries.log(config.ADMIN_USER, "draft_send_exception", "draft", did, detail=err_msg)
+            return RedirectResponse(f"{back_base}?err=" + quote(err_msg), status_code=303)
+
+    return RedirectResponse(f"{back_base}?err=" + quote("未知操作"), status_code=303)
 
 
 # ============ 模板 ============

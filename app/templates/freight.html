@@ -13,22 +13,22 @@
 {% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
 {% if err %}<div class="alert err">{{ err }}</div>{% endif %}
 
-<!-- 顶部选项卡 -->
-<div class="freight-tabs">
-  <a class="freight-tab-btn {% if active_tab == 'calc' %}active{% endif %}" href="/freight?tab=calc&dest={{ f.dest }}&channel={{ f.channel }}&weight={{ f.weight }}&vol={{ f.vol }}">
-    <span>🧮 运费测算与比价</span>
+<!-- 顶部选项卡 (iOS 液态磨砂玻璃胶囊) -->
+<div class="glass-tabs" style="margin-bottom:18px;">
+  <a class="glass-tab {% if active_tab == 'calc' %}active{% endif %}" href="/freight?tab=calc&dest={{ f.dest }}&channel={{ f.channel }}&weight={{ f.weight }}&vol={{ f.vol }}">
+    <span class="tab-icon">🧮</span> 运费测算与比价
   </a>
-  <a class="freight-tab-btn {% if active_tab == 'quotes' %}active{% endif %}" href="/freight?tab=quotes">
-    <span>📋 渠道报价库 ({{ total_quotes }})</span>
+  <a class="glass-tab {% if active_tab == 'quotes' %}active{% endif %}" href="/freight?tab=quotes">
+    <span class="tab-icon">📋</span> 渠道报价库 ({{ total_quotes }})
   </a>
-  <a class="freight-tab-btn {% if active_tab == 'forwarders' %}active{% endif %}" href="/freight?tab=forwarders">
-    <span>🏢 货代名录 ({{ total_forwarders }})</span>
+  <a class="glass-tab {% if active_tab == 'forwarders' %}active{% endif %}" href="/freight?tab=forwarders">
+    <span class="tab-icon">🏢</span> 货代名录 ({{ total_forwarders }})
   </a>
 </div>
 
 <!-- ======================= TAB 1: 运费测算与对比 ======================= -->
 {% if active_tab == 'calc' %}
-<div class="card">
+<div class="card glass-card">
   <form method="get" action="/freight">
     <input type="hidden" name="tab" value="calc">
     <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end;">
@@ -67,7 +67,7 @@
 
 {% if calc.quotes %}
 <!-- 比价亮点与一键复制 -->
-<div class="calc-card-highlight">
+<div class="calc-card-highlight glass-card">
   <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
     <div>
       <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">
@@ -86,7 +86,7 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card glass-card">
   <div class="table-wrap">
     <table>
       <thead>
@@ -201,7 +201,7 @@
 
 <!-- ======================= TAB 2: 渠道报价库 ======================= -->
 {% if active_tab == 'quotes' %}
-<div class="card">
+<div class="card glass-card">
   <form method="get" action="/freight">
     <input type="hidden" name="tab" value="quotes">
     <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr) auto;gap:10px;align-items:end;">
@@ -243,7 +243,7 @@
   </form>
 </div>
 
-<div class="card">
+<div class="card glass-card">
   {% if quotes %}
   <div class="table-wrap">
     <table>
@@ -328,7 +328,7 @@
 
 <!-- ======================= TAB 3: 货代名录 ======================= -->
 {% if active_tab == 'forwarders' %}
-<div class="card">
+<div class="card glass-card">
   <form method="get" action="/freight">
     <input type="hidden" name="tab" value="forwarders">
     <div style="display:flex;gap:10px;align-items:center;">
@@ -344,7 +344,7 @@
 {% if forwarders %}
 <div class="fwd-grid">
   {% for fwd in forwarders %}
-  <div class="fwd-card">
+  <div class="fwd-card glass-card">
     <div>
       <div class="fwd-card-head">
         <div>

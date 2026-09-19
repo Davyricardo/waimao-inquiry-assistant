@@ -7,7 +7,6 @@ import email.utils
 import smtplib
 import ssl
 from email.message import EmailMessage
-from email.header import Header
 
 from . import crypto_util
 
@@ -21,22 +20,36 @@ def send_mail(account, to_addr: str, subject: str, body_text: str,
     except Exception as e:
         return False, f"凭据解密失败: {e}"
 
-    msg = EmailMessage()
-    display = from_name or account["display_name"] or account["email"]
-    msg["From"] = email.utils.formataddr((display, account["email"]))
-    msg["To"] = to_addr
-    msg["Subject"] = Header(subject or "(no subject)", "utf-8").encode()
-    msg["Date"] = email.utils.formatdate(localtime=False)
-    msg["Message-ID"] = email.utils.make_msgid(domain=account["email"].split("@")[-1])
-    if reply_to_msgid:
-        msg["In-Reply-To"] = reply_to_msgid
-        msg["References"] = references or reply_to_msgid
-    msg.set_content(body_text or "", charset="utf-8")
-
-    ctx = ssl.create_default_context()
-    host = account["smtp_host"]
-    port = int(account["smtp_port"])
     try:
+        msg = EmailMessage()
+        display = " ".join((from_name or account.get("display_name") or account["email"]).split())
+        clean_to = " ".join((to_addr or "").split())
+        # EmailMessage 会按现代策略自动安全编码与折行 UTF-8 标题；禁止包含裸换行符
+        clean_subject = " ".join((subject or "(no subject)").split())
+
+        msg["From"] = email.utils.formataddr((display, account["email"]))
+        msg["To"] = clean_to
+        msg["Subject"] = clean_subject
+        msg["Date"] = email.utils.formatdate(localtime=False)
+        domain = account["email"].split("@")[-1] if "@" in account.get("email", "") else "localhost"
+        msg["Message-ID"] = email.utils.make_msgid(domain=domain)
+
+        if reply_to_msgid:
+            clean_reply_to = " ".join(reply_to_msgid.split())
+            if clean_reply_to:
+                msg["In-Reply-To"] = clean_reply_to
+        if references or reply_to_msgid:
+            ref_val = references or reply_to_msgid
+            clean_refs = " ".join(ref_val.split())
+            if clean_refs:
+                msg["References"] = clean_refs
+
+        msg.set_content(body_text or "", charset="utf-8")
+
+        ctx = ssl.create_default_context()
+        host = account["smtp_host"]
+        port = int(account["smtp_port"])
+
         if port == 465:
             with smtplib.SMTP_SSL(host, port, context=ctx, timeout=30) as s:
                 s.login(account["email"], password)
@@ -55,6 +68,8 @@ def send_mail(account, to_addr: str, subject: str, body_text: str,
         return False, "收件人被拒绝：地址无效或被对方服务器拒收"
     except (smtplib.SMTPException, OSError) as e:
         return False, f"发送失败: {type(e).__name__}: {e}"
+    except Exception as e:
+        return False, f"发信异常: {type(e).__name__}: {e}"
 
 
 def test_connection(account) -> tuple[bool, str]:

@@ -38,14 +38,14 @@
     </div>
   </div>
   <div class="metric hi">
-    <div class="label">高意向客户</div>
+    <div class="label">高意向询盘</div>
     <div class="value">{{ d.high_intent }}</div>
-    <div class="foot">意向分 ≥ {{ high }} 的今日邮件</div>
+    <div class="foot">意向分 ≥ {{ high }} 的目标邮件</div>
   </div>
   <div class="metric wa">
     <div class="label">待人工审核</div>
     <div class="value">{{ d.pending_review }}</div>
-    <div class="foot">需要你确认的回复草稿</div>
+    <div class="foot">目标邮件待确认草稿</div>
   </div>
   <div class="metric ok">
     <div class="label">今日已回复</div>
@@ -56,6 +56,7 @@
 
 <div class="card">
   <h2>近 7 日询盘趋势</h2>
+  <p class="sub" style="font-size:12px;color:var(--text-3);margin-top:-4px;margin-bottom:10px;">仅统计有效目标邮件（已剔除垃圾与其他无关邮件）</p>
   <div id="chartWrap" style="position:relative;width:100%;height:220px;">
     <canvas id="trendChart" role="img" aria-label="近 7 日询盘数量与高意向数量柱状图">
       近 7 日询盘数据：{{{ tr.labels }}} 对应 {{{ tr.in_count }}}
@@ -63,7 +64,7 @@
   </div>
   <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:12px;color:var(--text-2);">
     <span style="display:flex;align-items:center;gap:5px;">
-      <span style="width:10px;height:10px;border-radius:2px;background:#85B7EB;"></span>全部询盘
+      <span style="width:10px;height:10px;border-radius:2px;background:#85B7EB;"></span>目标询盘
     </span>
     <span style="display:flex;align-items:center;gap:5px;">
       <span style="width:10px;height:10px;border-radius:2px;background:#E24B4A;"></span>高意向
@@ -98,12 +99,12 @@
   </div>
 
   <div class="card" style="margin-bottom:0;">
-    <h2>近 30 日分类分布</h2>
+    <h2>近 30 日分类分布（目标邮件）</h2>
     {% if cats %}
       {% for c in cats %}
       <div style="margin-bottom:11px;">
         <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
-          <span>{{ c.cat }}</span>
+          <span>{{ c.cat_cn or c.cat }}</span>
           <span style="color:var(--text-2);">{{ c.c }} 封 · 均分 {{ c.avg_score }}</span>
         </div>
         <div class="bar-track"><div class="bar-fill" style="width:{{{ c.pct }}}%;"></div></div>
@@ -113,8 +114,8 @@
       <div class="empty">暂无数据</div>
     {% endif %}
     <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text-2);">
-      累计客户 <strong style="color:var(--text);">{{ d.total_contacts }}</strong> 位 ·
-      未读 <strong style="color:var(--text);">{{ d.unread }}</strong> 封
+      累计高意向与跟进客户 <strong style="color:var(--text);">{{ d.total_contacts }}</strong> 位 ·
+      有效未读 <strong style="color:var(--text);">{{ d.unread }}</strong> 封
     </div>
   </div>
 </div>

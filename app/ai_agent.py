@@ -25,31 +25,32 @@ CATEGORY_CN = {
 # ============ 规则降级用的信号词 ============
 
 SIGNALS = {
-    "quote": [
-        r"\b(price|quotation|quote|quotation|fob|cif|exw|unit price|"
-        r"cost|discount|payment term|moq)\b",
-        r"(价格|报价|单价|账期|折扣|起订量)",
-    ],
     "inquiry": [
-        r"\b(inquiry|enquiry|interested in|we are looking for|"
-        r"please send.*(catalog|catalogue|specification)|"
-        r"do you (supply|manufacture|produce)|sample)\b",
-        r"(询价|求购|目录|样品|规格)",
+        r"\b(inquiry|enquiry|interested in|we are looking for|looking for|"
+        r"please send.*(catalog|catalogue|specification|price|quote)|"
+        r"can you (supply|provide|manufacture|produce)|sample|rfq|lead time)\b",
+        r"(询盘|求购|目录|样品|规格|交期|能否提供|有兴趣)",
+    ],
+    "quote": [
+        r"\b(counter[\s\-]?offer|target price|too expensive|lower.*price|discount on|"
+        r"proforma invoice|\bpi\b|quotation sheet|price list for distributors|"
+        r"payment term|credit term|l/c payment|commercial invoice)\b",
+        r"(还价|目标价|太贵|降价|形式发票|商业发票|付款方式|账期|信用证)",
     ],
     "after_sale": [
         r"\b(not working|defective|broken|damaged|return|refund|"
-        r"warranty|repair|quality issue|missing)\b",
-        r"(售后|退货|退款|破损|质量问题|维修|保修)",
+        r"warranty|repair|quality issue|missing|wrong item)\b",
+        r"(售后|退货|退款|破损|质量问题|维修|保修|缺件|发错)",
     ],
     "complaint": [
-        r"\b(complain|unacceptable|disappointed|terrible|"
-        r"worst|angry|legal action|lawyer)\b",
-        r"(投诉|失望|不可接受|律师|起诉)",
+        r"\b(complain|complaint|unacceptable|disappointed|terrible|"
+        r"worst|angry|legal action|lawyer|sue)\b",
+        r"(投诉|失望|不可接受|律师|起诉|索赔)",
     ],
     "spam": [
-        r"\b(seo service|guaranteed traffic|bitcoin|crypto|"
-        r"viagra|casino|loan offer|work from home)\b",
-        r"(推广服务|刷单|代运营)",
+        r"\b(seo service|guaranteed traffic|bitcoin|crypto|usdt|"
+        r"viagra|casino|loan offer|work from home|guest post|backlink)\b",
+        r"(推广服务|刷单|代运营|放贷|博彩)",
     ],
 }
 
@@ -85,9 +86,11 @@ LOW_VALUE_PATTERNS = [
 
 # ============ 模型调用（转发到 ai_client，保持向后兼容） ============
 
-def _call_model(messages: list, max_tokens: int = 800) -> str | None:
+def _call_model(messages: list, max_tokens: int = 800, purpose: str = "general",
+                message_id: int | None = None, contact_id: int | None = None) -> str | None:
     """直连上游模型 API。失败返回 None，由调用方降级。"""
-    return ai_client.chat(messages, max_tokens=max_tokens)
+    return ai_client.chat(messages, max_tokens=max_tokens, purpose=purpose,
+                          message_id=message_id, contact_id=contact_id)
 
 
 def _extract_json(text: str) -> dict | None:
@@ -98,13 +101,48 @@ def _extract_json(text: str) -> dict | None:
 
 def rule_analyze(subject: str, body: str, from_addr: str) -> dict:
     """无模型时的启发式分析。用于先把链路跑通，也给模型结果做交叉校验。"""
-    text = f"{subject}\n{body}".lower()
+    subj_str = subject or ""
+    body_str = body or ""
+    text = f"{subj_str}\n{body_str}".lower()
+    subj_lower = subj_str.lower()
+
     category, cat_conf = "other", 0.3
-    best = 0
-    for cat, pats in SIGNALS.items():
-        hits = sum(1 for p in pats if re.search(p, text, re.I))
-        if hits > best:
-            best, category, cat_conf = hits, cat, min(0.5 + hits * 0.15, 0.9)
+
+    # 1. 垃圾邮件过滤：垃圾特征显著时直接定性为 spam
+    spam_hits = sum(1 for p in SIGNALS["spam"] if re.search(p, text, re.I))
+    if spam_hits > 0:
+        category, cat_conf = "spam", min(0.6 + spam_hits * 0.15, 0.95)
+    else:
+        # 2. 意向与分类打分
+        # 核心原则：Subject 权重极高！主题含有 Inquiry / Enquiry / RFQ 等必为询盘
+        has_subj_inquiry = bool(
+            re.search(r"\b(inquiry|enquiry|rfq|interested in)\b", subj_lower, re.I) or
+            re.search(r"(询盘|询价|求购|采购需求)", subj_lower)
+        )
+
+        scores = {}
+        for cat in ("inquiry", "quote", "after_sale", "complaint"):
+            pats = SIGNALS[cat]
+            hits = sum(1 for p in pats if re.search(p, text, re.I))
+            scores[cat] = hits
+
+        if has_subj_inquiry:
+            scores["inquiry"] = scores.get("inquiry", 0) + 10
+
+        best_cat = max(scores, key=scores.get)
+        if scores[best_cat] > 0:
+            category = best_cat
+            cat_conf = min(0.5 + scores[best_cat] * 0.15, 0.95)
+        else:
+            # 3. 商业意图兜底：有效买家来信绝不轻易归为 other
+            # 如果正文包含产品、数量、采购、目录、单价等商业意图词，保底为 inquiry
+            comm_signals = r"\b(product|item|model|price|quote|cost|order|buy|purchas|catalog|catalogue|sample|spec|pcs|units|supply|factory|company)\b"
+            if re.search(comm_signals, text, re.I):
+                category = "inquiry"
+                cat_conf = 0.6
+            else:
+                category = "other"
+                cat_conf = 0.35
 
     score, evidence = 25, []
     for pat, weight, label in HIGH_VALUE_PATTERNS:
@@ -128,7 +166,7 @@ def rule_analyze(subject: str, body: str, from_addr: str) -> dict:
         evidence.append("-4 免费邮箱")
 
     # 正文长度：太短通常是泛发
-    if len(body.strip()) < 40:
+    if len(body_str.strip()) < 40:
         score -= 10
         evidence.append("-10 正文过短")
 
@@ -160,7 +198,7 @@ def rule_analyze(subject: str, body: str, from_addr: str) -> dict:
 
 # ============ 模型分析 ============
 
-ANALYZE_SYSTEM = """You are an email analyst for a Chinese export trading company.
+ANALYZE_SYSTEM = """You are an expert email analyst for a Chinese export trading company.
 Analyze the customer email and return STRICT JSON only, no other text.
 
 Schema:
@@ -187,12 +225,22 @@ Scoring guide (0-100 = purchase intent):
 - Only asks for catalog / no specifics / free sample begging: negative
 - Vague mass-mail template: negative
 
-category guide:
-- inquiry: asking about products, specs, availability, catalog
-- quote: explicitly asking for price / quotation
-- after_sale: product problems, returns, warranty on EXISTING order
-- complaint: expressing serious dissatisfaction
-- spam: unsolicited marketing, phishing, scam
+CATEGORY RULES (STRICT):
+1. 'inquiry' (询盘):
+   - ANY email where a customer is inquiring about products, models, specifications, catalog, samples, availability, MOQ, or ASKING FOR A PRICE / QUOTATION.
+   - If the Subject contains "Inquiry", "Enquiry", "RFQ", or "Interested in", it MUST be classified as 'inquiry'!
+   - In foreign trade, buyers routinely ask "Please quote your best price for model X". This is the definition of an INQUIRY (询盘), NOT a 'quote'!
+2. 'quote' (报价谈判):
+   - ONLY for active price bargaining/haggling ("Your price is too high, our target price is $X"), price counter-offers, formal Proforma Invoice (PI) requests on established business, or payment terms negotiations.
+3. 'after_sale' (售后):
+   - Issues, defects, repairs, warranties, or missing parts on ALREADY PLACED / DELIVERED orders.
+4. 'complaint' (投诉):
+   - Serious complaints, claims, legal threats.
+5. 'spam' (垃圾邮件):
+   - Unsolicited spam marketing, SEO, crypto, phishing, scams.
+6. 'other' (其他/无效邮件):
+   - STRICTLY reserved for NON-BUYER automated notifications: Mailer-Daemon bounce notices, Out of Office auto-replies, system newsletters.
+   - REAL CUSTOMER MESSAGES MUST NEVER BE CLASSIFIED AS 'other'! Any valid buyer email asking questions must be 'inquiry', 'quote', 'after_sale', or 'complaint'.
 
 Return JSON only."""
 
@@ -210,7 +258,7 @@ def ai_analyze(subject: str, body: str, from_addr: str,
     content = _call_model([
         {"role": "system", "content": ANALYZE_SYSTEM},
         {"role": "user", "content": prompt},
-    ], max_tokens=900)
+    ], max_tokens=900, purpose="analysis")
     parsed = _extract_json(content) if content else None
 
     if not parsed:
@@ -220,6 +268,12 @@ def ai_analyze(subject: str, body: str, from_addr: str,
     category = str(parsed.get("category", "")).lower().strip()
     if category not in CATEGORIES:
         category = fallback["category"]
+
+    # 纠偏兜底：如果主题明确包含 Inquiry/Enquiry/询盘，且分类被模型误判为 quote 或 other，自动修正为 inquiry
+    subj_lower = (subject or "").lower()
+    if re.search(r"\b(inquiry|enquiry|rfq)\b", subj_lower) or re.search(r"(询盘|询价|求购)", subj_lower):
+        if category in ("quote", "other"):
+            category = "inquiry"
 
     try:
         score = int(parsed.get("score", fallback["score"]))
@@ -273,7 +327,7 @@ def draft_reply(subject: str, body: str, contact_name: str,
     content = _call_model([
         {"role": "system", "content": DRAFT_SYSTEM},
         {"role": "user", "content": user},
-    ], max_tokens=1200)
+    ], max_tokens=1200, purpose="draft")
     if not content:
         return None
 

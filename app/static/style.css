@@ -1459,6 +1459,19 @@ tr:hover td { background: var(--surface-2); }
   border: 1px dashed #cbd5e1;
 }
 
+/* 比价高亮卡片 (Liquid Highlight Card) */
+.calc-card-highlight {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.85) 0%, rgba(240, 253, 250, 0.8) 100%);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(191, 219, 254, 0.8);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 24px -4px rgba(37, 99, 235, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+  animation: liquidGlow 8s ease-in-out infinite;
+}
+
 /* 货代卡片网格 */
 .fwd-grid {
   display: grid;
@@ -1468,21 +1481,23 @@ tr:hover td { background: var(--surface-2); }
 }
 
 .fwd-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  box-shadow: var(--card-shadow);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .fwd-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--card-shadow-hover);
-  border-color: var(--border-strong);
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.09), 0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+  border-color: rgba(37, 99, 235, 0.25);
 }
 
 .fwd-card-head {
@@ -2034,6 +2049,217 @@ tr:hover td { background: var(--surface-2); }
   color: var(--danger);
   font-weight: 600;
 }
+
+
+/* ============================================================
+   iOS 液态磨砂玻璃 (Liquid Frosted Glass) 视觉渲染与动效系统
+   ============================================================ */
+
+/* 1. 环境液态微光散焦微晕 */
+body::before {
+  content: "";
+  position: fixed;
+  top: -12vw;
+  right: -10vw;
+  width: 50vw;
+  height: 50vw;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, rgba(139, 92, 246, 0.05) 40%, transparent 70%);
+  filter: blur(80px);
+  z-index: -1;
+  pointer-events: none;
+  animation: liquidGlowA 18s ease-in-out infinite alternate;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  bottom: -15vw;
+  left: 10vw;
+  width: 55vw;
+  height: 55vw;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.06) 0%, rgba(59, 130, 246, 0.04) 45%, transparent 70%);
+  filter: blur(90px);
+  z-index: -1;
+  pointer-events: none;
+  animation: liquidGlowB 22s ease-in-out infinite alternate;
+}
+
+@keyframes liquidGlowA {
+  0% { transform: scale(1) translate(0, 0); }
+  50% { transform: scale(1.15) translate(-3vw, 4vh); }
+  100% { transform: scale(0.95) translate(2vw, -2vh); }
+}
+
+@keyframes liquidGlowB {
+  0% { transform: scale(1) translate(0, 0); }
+  50% { transform: scale(1.12) translate(3vw, -3vh); }
+  100% { transform: scale(0.92) translate(-2vw, 2vh); }
+}
+
+/* 2. 液态磨砂玻璃卡片 (Glass Card) */
+.glass-card {
+  background: rgba(255, 255, 255, 0.78) !important;
+  backdrop-filter: blur(20px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.75) !important;
+  box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.05),
+              0 0 0 1px rgba(255, 255, 255, 0.6) inset,
+              0 1px 2px 0 rgba(15, 23, 42, 0.04) !important;
+  border-radius: 14px;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.28s ease,
+              border-color 0.28s ease !important;
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.09),
+              0 0 0 1px rgba(255, 255, 255, 0.9) inset !important;
+}
+
+/* 3. 液态胶囊 Tab 导航 (Liquid Glass Tabs) */
+.glass-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(241, 245, 249, 0.72);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  padding: 5px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04), inset 0 1px 1px rgba(255, 255, 255, 0.8);
+  margin-bottom: 20px;
+}
+
+.glass-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+}
+
+.glass-tab:hover {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.5);
+  text-decoration: none;
+}
+
+.glass-tab.active {
+  background: #ffffff;
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.16),
+              0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+  transform: scale(1.02);
+}
+
+.glass-tab .tab-icon {
+  font-size: 15px;
+}
+
+/* 4. 液态指标卡布局 (Liquid Grid & Stat Card) */
+.liquid-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.stat-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  margin: 0 !important;
+}
+
+.stat-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.stat-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-1);
+  margin-top: 3px;
+  letter-spacing: -0.5px;
+}
+
+.stat-value small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-left: 2px;
+}
+
+.stat-foot {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+/* 5. 按钮拟物理回弹与流光扫光动效 */
+.btn {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.18s ease,
+              background 0.18s ease,
+              border-color 0.18s ease !important;
+}
+
+.btn:active {
+  transform: scale(0.96) !important;
+}
+
+.btn.primary {
+  background: linear-gradient(135deg, var(--accent) 0%, #3b82f6 100%) !important;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn.primary::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -70%;
+  width: 45%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transform: rotate(25deg);
+  transition: all 0.65s ease;
+  pointer-events: none;
+}
+
+.btn.primary:hover::after {
+  left: 130%;
+}
+
 
 
 

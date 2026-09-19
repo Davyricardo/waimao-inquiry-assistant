@@ -1,27 +1,28 @@
 <div class="page-head">
   <div>
     <h1>询盘列表</h1>
-    <p class="sub">共 {{ data.total }} 封邮件</p>
+    <p class="sub">共 {{ data.total }} 封有效业务邮件{% if not f.category or f.category == 'valid' %}（已自动过滤垃圾邮件）{% elif f.category == 'spam' %}（当前查看垃圾邮件回收站）{% endif %}</p>
   </div>
 </div>
 
 <div class="card">
   <form method="get" action="/messages">
-    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end;">
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto;gap:10px;align-items:end;">
       <div>
         <label class="field">关键词</label>
         <input type="text" name="q" value="{{ f.q }}" placeholder="主题 / 正文 / 发件人">
       </div>
       <div>
-        <label class="field">类别</label>
+        <label class="field">邮件分类</label>
         <select name="category">
-          <option value="">全部</option>
-          <option value="inquiry">询盘</option>
-          <option value="quote">报价</option>
-          <option value="after_sale">售后</option>
-          <option value="complaint">投诉</option>
-          <option value="spam">垃圾邮件</option>
-          <option value="other">其他</option>
+          <option value="" {% if not f.category %}selected{% endif %}>全部有效邮件（自动排除垃圾）</option>
+          <option value="inquiry" {% if f.category == 'inquiry' %}selected{% endif %}>仅看询盘 (Inquiry)</option>
+          <option value="quote" {% if f.category == 'quote' %}selected{% endif %}>报价 (Quote)</option>
+          <option value="after_sale" {% if f.category == 'after_sale' or f.category == 'after_sales' %}selected{% endif %}>售后 (After-sale)</option>
+          <option value="complaint" {% if f.category == 'complaint' %}selected{% endif %}>投诉 (Complaint)</option>
+          <option value="other" {% if f.category == 'other' %}selected{% endif %}>其他邮件 (Other)</option>
+          <option value="spam" {% if f.category == 'spam' %}selected{% endif %}>垃圾邮件回收站 (Spam)</option>
+          <option value="all" {% if f.category == 'all' %}selected{% endif %}>全部邮件（包含垃圾邮件）</option>
         </select>
       </div>
       <div>
@@ -83,11 +84,11 @@
   {% if data.pages > 1 %}
   <div class="pager">
     {% if data.page > 1 %}
-    <a href="/messages?page={{ data.page - 1 }}&q={{ f.q }}&category={{ f.category }}&min_score={{ f.min_score }}">上一页</a>
+    <a href="/messages?page={{ data.prev_page }}&q={{ f.q }}&category={{ f.category }}&min_score={{ f.min_score }}">上一页</a>
     {% endif %}
     <span class="cur">{{ data.page }} / {{ data.pages }}</span>
     {% if data.page < data.pages %}
-    <a href="/messages?page={{ data.page + 1 }}&q={{ f.q }}&category={{ f.category }}&min_score={{ f.min_score }}">下一页</a>
+    <a href="/messages?page={{ data.next_page }}&q={{ f.q }}&category={{ f.category }}&min_score={{ f.min_score }}">下一页</a>
     {% endif %}
   </div>
   {% endif %}

@@ -284,7 +284,7 @@ Infer the customer profile from the above only."""
     raw = ai_client.chat([
         {"role": "system", "content": PROFILE_SYSTEM},
         {"role": "user", "content": user},
-    ], max_tokens=1600)
+    ], max_tokens=1600, purpose="profile")
     parsed = ai_client.extract_json(raw) if raw else None
 
     if not isinstance(parsed, dict):

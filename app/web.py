@@ -21,14 +21,15 @@
 若将来要直接暴露公网，必须先在前面加 HTTPS 反代。
 """
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, config, db, queries
-from .routers import (company, contacts, dashboard, freight, messages, orders,
-                      products, settings, social)
+from .routers import (company, contacts, dashboard, freight, logs, messages,
+                      orders, products, settings, social, vouchers)
 from .routers.settings import MAIL_PRESETS, _ai_context  # noqa: F401 – 向后兼容，测试文件引用
 from .templating import render
 
@@ -40,7 +41,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 COOKIE = "mb_sess"
 
 # ============ 中间件 ============
-PUBLIC_PATHS = {"/login", "/health", "/favicon.ico"}
+PUBLIC_PATHS = {"/login", "/forgot-password", "/health", "/favicon.ico"}
 
 
 def current_user(request: Request):
@@ -118,13 +119,70 @@ def logout():
     return resp
 
 
+@app.get("/forgot-password")
+def forgot_password_page(request: Request, err: str = ""):
+    if current_user(request):
+        return RedirectResponse("/", status_code=303)
+    has_q = auth.has_security_question()
+    q = auth.get_security_question() if has_q else ""
+    return HTMLResponse(render("forgot_password.html", err=err, has_question=has_q, question=q))
+
+
+@app.post("/forgot-password")
+def forgot_password_submit(
+    request: Request,
+    security_answer: str = Form(""),
+    new_password: str = Form(""),
+    confirm_password: str = Form(""),
+):
+    ip = request.client.host if request.client else "?"
+    locked, wait = auth.throttle_check(ip)
+    if locked:
+        return HTMLResponse(
+            render("forgot_password.html", err=f"尝试次数过多，请 {wait} 秒后再试",
+                   has_question=auth.has_security_question(),
+                   question=auth.get_security_question()),
+            status_code=429,
+        )
+
+    if not auth.has_security_question():
+        return HTMLResponse(
+            render("forgot_password.html", err="系统尚未设置密保问题，无法通过密保找回密码",
+                   has_question=False, question=""),
+            status_code=400,
+        )
+
+    if new_password != confirm_password:
+        return HTMLResponse(
+            render("forgot_password.html", err="两次输入的新密码不一致，请重新输入",
+                   has_question=True, question=auth.get_security_question()),
+            status_code=400,
+        )
+
+    ok, msg = auth.reset_admin_password_by_security(security_answer, new_password)
+    if not ok:
+        auth.throttle_fail(ip)
+        queries.log(ip, "reset_password_failed", detail=msg)
+        return HTMLResponse(
+            render("forgot_password.html", err=msg,
+                   has_question=True, question=auth.get_security_question()),
+            status_code=400,
+        )
+
+    auth.throttle_reset(ip)
+    queries.log(ip, "reset_password_ok", detail="by_security_question")
+    return RedirectResponse("/login?err=" + quote("密码已成功重置，请使用新密码登录"), status_code=303)
+
+
 # ============ 注册各功能域路由 ============
 app.include_router(dashboard.router)
 app.include_router(messages.router)
 app.include_router(contacts.router)
 app.include_router(orders.router)
+app.include_router(vouchers.router)
 app.include_router(freight.router)
 app.include_router(products.router)
 app.include_router(social.router)
 app.include_router(company.router)
+app.include_router(logs.router)
 app.include_router(settings.router)

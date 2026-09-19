@@ -5,3 +5,5 @@ python-multipart==0.0.20
 pydantic-settings==2.7.1
 httpx==0.28.1
 sqlalchemy==2.0.41
+rapidocr-onnxruntime>=1.2.0
+Pillow>=10.0.0

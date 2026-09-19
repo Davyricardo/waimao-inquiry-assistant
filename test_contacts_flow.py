@@ -7,9 +7,11 @@ def test_all():
     print(" 客户管理 CRUD + 主题系统 自动化测试")
     print("==================================================")
 
-    # 0. 预先清理可能残留的测试邮箱
+    # 0. 预先清理可能残留的测试邮箱并记录初始客户数
     with db.tx() as conn:
         conn.execute("DELETE FROM contacts WHERE email='test_buyer@globaltrade.de'")
+    with db.ro() as conn:
+        initial_count = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
 
     # 1. 保存/新建客户
     ok, msg, cid = queries.save_contact({
@@ -62,11 +64,11 @@ def test_all():
     assert queries.get_contact(cid) is None
     print("  [ OK ] 删除测试客户通过")
 
-    # 7. 确保测试后数据库客户数为 0
+    # 7. 确保测试后数据库客户数恢复初始值
     with db.ro() as conn:
         count = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
-    assert count == 0, f"测试后客户数应保持为 0, 当前: {count}"
-    print("  [ OK ] 数据库保持绝对干净 (0 客户)")
+    assert count == initial_count, f"测试后客户数应保持为 {initial_count}, 当前: {count}"
+    print(f"  [ OK ] 数据库保持干净无残留 (客户数保持为: {count})")
 
     print("==================================================")
     print(" 全部 7 项端到端业务流自动化测试通过！")

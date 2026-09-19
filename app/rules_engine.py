@@ -44,7 +44,15 @@ def match(analysis: dict, rules: list = None) -> dict:
             continue
         return r
 
-    # 没有任何规则命中时的默认兜底：起草待审，最安全
+    # 没有任何规则命中时的默认兜底：
+    # 若属于无效邮件（spam 垃圾邮件或 other 其他未分类邮件），默认忽略丢弃，绝不自动起草回复
+    if cat in ("spam", "other"):
+        return {
+            "id": None, "name": "无效/其他邮件默认丢弃", "cond": {},
+            "action": "drop", "template_key": None,
+            "priority": 999,
+        }
+
     return {
         "id": None, "name": "默认兜底", "cond": {},
         "action": "draft_only", "template_key": "inquiry_ack",

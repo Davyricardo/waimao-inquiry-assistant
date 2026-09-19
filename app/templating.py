@@ -122,8 +122,22 @@ def _load(name: str) -> str:
 
 
 def _resolve(expr: str, ctx: dict):
-    """支持 a.b.c 与 a['b'] 与函数调用 a(b) 的简单取值。"""
-    expr = expr.strip()
+    """支持 a.b.c 与 a['b'] 与函数调用 a(b) 与简单算术 a + 1 / a - 1 的取值。"""
+    # 三元条件表达式：true_val if cond else false_val
+    m_tern = re.match(r"^(.+?)\s+if\s+(.+?)\s+else\s+(.+)$", expr)
+    if m_tern:
+        cond_val = _resolve(m_tern.group(2), ctx)
+        return _resolve(m_tern.group(1), ctx) if cond_val else _resolve(m_tern.group(3), ctx)
+
+    # 二元简单算术运算：如 a.page + 1 或 a.page - 1
+    m_arith = re.match(r"^([\w.\[\]'\"]+)\s*([\+\-])\s*([\w.\[\]'\"]+)$", expr)
+    if m_arith:
+        left_val = _resolve(m_arith.group(1), ctx)
+        op = m_arith.group(2)
+        right_val = _resolve(m_arith.group(3), ctx)
+        if isinstance(left_val, (int, float)) and isinstance(right_val, (int, float)):
+            return left_val + right_val if op == "+" else left_val - right_val
+
     # 函数调用：func(arg1, arg2)
     m = re.match(r"^([\w.\[\]]+)\((.*)\)$", expr, re.S)
     if m:
@@ -511,8 +525,16 @@ def render(name: str, **ctx) -> str:
     merged["page_title"] = (ctx.get("page_title")
                             or PAGE_TITLES.get(page, "外贸询盘助手"))
     for key in ("dashboard", "messages", "contacts", "freight", "orders",
-                "products", "social", "company", "review", "rules", "templates", "settings"):
+                "products", "social", "company", "vouchers", "review", "rules", "templates", "logs", "settings"):
         merged["nav_" + key] = "active" if page == key else ""
+
+    if "review_badge" not in merged or merged["review_badge"] is None:
+        try:
+            from . import queries
+            cnt = queries.pending_review_count()
+            merged["review_badge"] = f'<span class="nav-badge">{cnt}</span>' if cnt > 0 else ""
+        except Exception:
+            merged["review_badge"] = ""
 
     body = _render_block(_load(name), merged)
     # 注意：body 已是最终 HTML，不能作为普通变量参与转义，
@@ -526,8 +548,8 @@ def render(name: str, **ctx) -> str:
 PAGE_TITLES = {
     "dashboard": "数据看板", "messages": "询盘列表", "contacts": "客户管理",
     "freight": "货运代理", "orders": "订单管理", "products": "产品库",
-    "social": "社媒开发", "company": "公司管理", "review": "审核台", "rules": "自动规则",
-    "templates": "回复模板", "settings": "系统设置",
+    "social": "社媒开发", "company": "公司管理", "vouchers": "凭证管理", "review": "审核台", "rules": "自动规则",
+    "templates": "回复模板", "logs": "日志中心", "settings": "系统设置",
 }
 
 

@@ -108,11 +108,21 @@ def _analyze_and_draft(message_id: int) -> None:
             "UPDATE threads SET score=MAX(score,?) WHERE id=?",
             (analysis["score"], msg["thread_id"]))
 
-    # --- 中文摘要（AI 或规则降级）---
-    _make_summary(msg, contact, analysis)
+        # 如果邮件被识别为垃圾邮件 (spam)，将客户阶段打上 spam 标记，防止污染正常客户池
+        if analysis.get("category") == "spam":
+            conn.execute(
+                "UPDATE contacts SET stage='spam' WHERE id=? AND stage NOT IN ('won', 'negotiating')",
+                (msg["contact_id"],))
 
-    # --- 客户背调（仅客户还没有档案时做，避免重复烧 token）---
-    _make_profile(msg, contact)
+    # --- 中文摘要（仅对目标邮件调用 AI 生成并保存，减少 token 浪费）---
+    # 目标邮件定义：询盘 (inquiry)、报价 (quote)、售后 (after_sale / after_sales)、投诉 (complaint)
+    target_categories = {"inquiry", "quote", "after_sale", "after_sales", "complaint"}
+    if analysis.get("category") in target_categories:
+        _make_summary(msg, contact, analysis)
+
+    # --- 客户背调（仅对有效目标邮件且客户还没有档案时做，避免对垃圾发件人浪费 token）---
+    if analysis.get("category") in target_categories:
+        _make_profile(msg, contact)
 
     if action == "drop":
         return
@@ -307,14 +317,19 @@ def _get_setting(key: str, default: str = "") -> str:
 
 
 def refresh_daily_stats() -> None:
-    """刷新今日统计快照，供看板趋势图直接读取。"""
+    """刷新今日统计快照，供看板趋势图直接读取。仅统计有效目标邮件。"""
     import time as _t
+    from . import queries
+    queries.clean_invalid_pending_drafts()
+    queries.clean_spam_contacts()
     offset = config.TZ_OFFSET_HOURS * 3600
     today = _t.strftime("%Y-%m-%d", _t.gmtime(_t.time() + offset))
+    cats_sql = queries.TARGET_CATEGORIES_SQL
     with db.tx() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) c FROM messages WHERE direction='in' "
-            "AND date(sent_ts + ?, 'unixepoch')=?", (offset, today)).fetchone()
+            f"SELECT COUNT(*) c FROM messages WHERE direction='in' "
+            f"AND (category IN {cats_sql} OR (category IS NULL AND status='new')) "
+            f"AND date(sent_ts + ?, 'unixepoch')=?", (offset, today)).fetchone()
         in_count = row["c"] if row else 0
         row = conn.execute(
             "SELECT COUNT(*) c FROM messages WHERE direction='out' "
@@ -326,17 +341,19 @@ def refresh_daily_stats() -> None:
             (offset, today)).fetchone()
         auto_count = row["c"] if row else 0
         row = conn.execute(
-            "SELECT COUNT(*) c FROM messages WHERE direction='in' AND score>=? "
-            "AND date(sent_ts + ?, 'unixepoch')=?",
+            f"SELECT COUNT(*) c FROM messages WHERE direction='in' AND score>=? "
+            f"AND category IN {cats_sql} "
+            f"AND date(sent_ts + ?, 'unixepoch')=?",
             (config.HIGH_INTENT, offset, today)).fetchone()
         high = row["c"] if row else 0
         row = conn.execute(
-            "SELECT COUNT(*) c FROM contacts WHERE "
-            "date(first_seen_ts + ?, 'unixepoch')=?", (offset, today)).fetchone()
+            "SELECT COUNT(*) c FROM contacts WHERE (score>=? OR stage IN ('engaging', 'quoted', 'negotiating', 'won') OR reply_count>0) "
+            "AND date(first_seen_ts + ?, 'unixepoch')=?", (config.HIGH_INTENT, offset, today)).fetchone()
         newc = row["c"] if row else 0
         row = conn.execute(
-            "SELECT AVG(score) a FROM messages WHERE direction='in' AND score IS NOT NULL "
-            "AND date(sent_ts + ?, 'unixepoch')=?", (offset, today)).fetchone()
+            f"SELECT AVG(score) a FROM messages WHERE direction='in' AND score IS NOT NULL "
+            f"AND category IN {cats_sql} "
+            f"AND date(sent_ts + ?, 'unixepoch')=?", (offset, today)).fetchone()
         avg = row["a"] if row and row["a"] is not None else 0
 
         conn.execute(

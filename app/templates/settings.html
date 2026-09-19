@@ -269,6 +269,29 @@
   <form method="post" action="/settings/ai">
     <input type="hidden" name="csrf_tok" value="{{ csrf }}">
 
+    <!-- 动态 API Key 获取网络地址指引卡片 -->
+    <div id="aiKeyGuideBox" class="saved-box" style="margin-bottom:16px;border-left:4px solid var(--primary);background:rgba(24,95,165,0.06);padding:14px 16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <span style="font-size:11.5px;font-weight:700;color:var(--primary);letter-spacing:0.5px;">🔑 官方 API KEY 获取地址与配置指引</span>
+          <h4 id="guidePortalName" style="margin:2px 0 0;font-size:15px;color:var(--text-1);">{{ ai_conf.portal_name }}</h4>
+        </div>
+        <div id="guideLinkWrap">
+          <a id="guideKeyUrlBtn" href="{{ ai_conf.key_url }}" target="_blank" rel="noopener" class="btn primary mini-btn" style="display:{% if ai_conf.key_url %}inline-flex{% else %}none{% endif %};align-items:center;gap:4px;padding:5px 12px;text-decoration:none;">
+            <span>直达官网获取密钥 ↗</span>
+          </a>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:13px;line-height:1.5;color:var(--text-2);" id="guideHint">
+        {{ ai_conf.hint }}
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text-3);" id="guideUrlDisplay">
+        {% if ai_conf.key_url %}
+        官网网络直达地址：<a id="guideKeyUrlText" href="{{ ai_conf.key_url }}" target="_blank" rel="noopener" style="color:var(--primary);word-break:break-all;text-decoration:underline;">{{ ai_conf.key_url }}</a>
+        {% endif %}
+      </div>
+    </div>
+
     <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;">
       <div>
         <label class="field">服务商预设</label>
@@ -277,18 +300,18 @@
           <option value="{{ k }}" {{{ sel(ai_conf.preset, k) }}}>{{ p.label }}</option>
           {% endfor %}
         </select>
-        <div class="hint" id="aiPresetHelp">选择预设会自动填好下方地址与模型名，你只需粘贴 Key。</div>
+        <div class="hint" id="aiPresetHelp">选择预设会自动填好下方地址与模型名，并在上方卡片展示官方直达获取地址。</div>
       </div>
       <div>
         <label class="field">API Key</label>
         <input type="password" name="api_key" value=""
                placeholder="{% if ai_conf.configured %}已保存，留空则不修改{% else %}粘贴 API Key{% endif %}"
                autocomplete="new-password">
-        <div class="hint">
-          密钥经 AES-256-GCM 加密后存库。<br>
-          {% if ai_conf.key_url %}
-          获取地址：<a href="{{ ai_conf.key_url }}" target="_blank" rel="noopener">{{ ai_conf.key_url }}</a>
-          {% endif %}
+        <div class="hint" id="aiKeyFieldHint">
+          密钥经 AES-256-GCM 加密后存库。
+          <span id="aiKeyFieldUrlWrap" style="display:{% if ai_conf.key_url %}inline{% else %}none{% endif %};">
+            <br>获取地址：<a id="aiKeyFieldUrl" href="{{ ai_conf.key_url }}" target="_blank" rel="noopener">{{ ai_conf.key_url }}</a>
+          </span>
         </div>
       </div>
     </div>
@@ -304,7 +327,7 @@
         <label class="field">模型名</label>
         <input type="text" name="model" id="aiModel" value="{{ ai_conf.model }}"
                placeholder="deepseek-chat" autocomplete="off">
-        <div class="hint">填服务商文档里的模型 ID，例如 deepseek-chat、qwen-plus、glm-4-flash。</div>
+        <div class="hint">填服务商文档里的模型 ID，例如 deepseek-chat、qwen-plus、hunyuan-standard、moonshot-v1-8k。</div>
       </div>
     </div>
 
@@ -342,6 +365,232 @@
       刚配好 Key 时点第二个按钮，把历史邮件一次性补上中文摘要与背调（最近 50 封）。
     </div>
   </div>
+
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border);">
+    <h3 style="font-size:14px;margin-bottom:8px;">主流 AI 大模型 API Key 获取与控制台直达速查表</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>AI 模型服务商</th>
+            <th>推荐默认模型</th>
+            <th>官方获取网络地址</th>
+            <th>说明与优势</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>阿里云百炼（通义千问）</strong></td>
+            <td><code>qwen-plus</code></td>
+            <td><a href="https://bailian.console.aliyun.com/?apiKey=1#/api-key" target="_blank" rel="noopener">bailian.console.aliyun.com</a></td>
+            <td style="font-size:12px;">阿里账号直接开通，国内直连极速响应，新用户赠送大额免费 Token</td>
+            <td>
+              <a href="https://bailian.console.aliyun.com/?apiKey=1#/api-key" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="dashscope" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>腾讯混元 Hunyuan</strong></td>
+            <td><code>hunyuan-standard</code></td>
+            <td><a href="https://console.cloud.tencent.com/hunyuan/api-key" target="_blank" rel="noopener">console.cloud.tencent.com</a></td>
+            <td style="font-size:12px;">腾讯云官方大模型，原生兼容 OpenAI 格式，外贸沟通与中文理解扎实</td>
+            <td>
+              <a href="https://console.cloud.tencent.com/hunyuan/api-key" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="hunyuan" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>月之暗面 Kimi</strong></td>
+            <td><code>moonshot-v1-8k</code></td>
+            <td><a href="https://platform.moonshot.cn/console/api-keys" target="_blank" rel="noopener">platform.moonshot.cn</a></td>
+            <td style="font-size:12px;">长文本与多轮上下文理解能力卓越，适合中长邮件深度摘要与买家背调</td>
+            <td>
+              <a href="https://platform.moonshot.cn/console/api-keys" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="moonshot" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>DeepSeek（深度求索）</strong></td>
+            <td><code>deepseek-chat</code></td>
+            <td><a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">platform.deepseek.com</a></td>
+            <td style="font-size:12px;">性价比极高，国内直连速度快，中文理解出色，推荐首选主力模型</td>
+            <td>
+              <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="deepseek" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>智谱 AI（GLM-4）</strong></td>
+            <td><code>glm-4-flash</code></td>
+            <td><a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank" rel="noopener">open.bigmodel.cn</a></td>
+            <td style="font-size:12px;">glm-4-flash 提供长期免费额度，多语种支持优秀，适合低成本启动</td>
+            <td>
+              <a href="https://open.bigmodel.cn/usercenter/apikeys" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="zhipu" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>百度千帆（文心 ERNIE）</strong></td>
+            <td><code>ernie-speed-128k</code></td>
+            <td><a href="https://console.bce.baidu.com/qianfan/ais/console/onlineService" target="_blank" rel="noopener">console.bce.baidu.com</a></td>
+            <td style="font-size:12px;">百度智能云千帆平台，支持 OpenAI 兼容 API 规范，轻量模型成本极低</td>
+            <td>
+              <a href="https://console.bce.baidu.com/qianfan/ais/console/onlineService" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="qianfan" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>MiniMax（海螺 AI）</strong></td>
+            <td><code>abab6.5s-chat</code></td>
+            <td><a href="https://platform.minimaxi.com/user-center/basic-information/interface-key" target="_blank" rel="noopener">platform.minimaxi.com</a></td>
+            <td style="font-size:12px;">MiniMax 开放平台，提供优质文本生成与商业会话能力</td>
+            <td>
+              <a href="https://platform.minimaxi.com/user-center/basic-information/interface-key" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="minimax" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>零一万物（01.AI）</strong></td>
+            <td><code>yi-lightning</code></td>
+            <td><a href="https://platform.lingyiwanwu.com/apikeys" target="_blank" rel="noopener">platform.lingyiwanwu.com</a></td>
+            <td style="font-size:12px;">李开复旗下零一万物大模型，在开放平台 API 密钥管理处获取</td>
+            <td>
+              <a href="https://platform.lingyiwanwu.com/apikeys" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="yi" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>OpenAI（ChatGPT）</strong></td>
+            <td><code>gpt-4o-mini</code></td>
+            <td><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></td>
+            <td style="font-size:12px;">国际顶级通用模型，需部署于海外服务器或具备境外网络访问环境</td>
+            <td>
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="mini-btn">获取密钥 ↗</a>
+              <button type="button" class="mini-btn btn-apply-ai" data-preset="openai" style="margin-left:4px;">应用</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card glass-card" id="adminSecurityCard">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+    <div>
+      <h2>管理员账户与安全保护</h2>
+      <p class="sub" style="margin-top:2px;">修改系统管理员登录用户名与登录密码，配备密保问题验证安全锁</p>
+    </div>
+    <div>
+      {% if has_security_question %}
+      <span class="acct-badge on" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:12px;">
+        <span>🛡️ 密保保护已生效</span>
+      </span>
+      {% else %}
+      <span class="acct-badge err" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;font-size:12px;">
+        <span>⚠️ 尚未配置密保问题</span>
+      </span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="saved-box" style="margin-top:12px;margin-bottom:16px;">
+    <div class="saved-grid">
+      <div class="saved-item">
+        <span class="k">当前管理员账号</span>
+        <span class="v"><strong style="color:var(--text-1);">{{ admin_user }}</strong></span>
+      </div>
+      <div class="saved-item wide">
+        <span class="k">密保状态</span>
+        <span class="v">
+          {% if has_security_question %}
+          <span>已绑定密保问题：<strong style="color:var(--primary);">{{ security_question }}</strong></span>
+          {% else %}
+          <span class="warn-text">尚未设置密保。为保障账户安全，首次修改管理员信息时必须设定密保问题与答案。</span>
+          {% endif %}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <form method="post" action="/settings/admin/credentials" id="adminCredForm">
+    <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+
+    <div style="padding:12px 14px;background:rgba(24,95,165,0.04);border:1px solid rgba(24,95,165,0.15);border-radius:var(--radius-sm);margin-bottom:14px;">
+      <strong style="display:block;font-size:13px;color:var(--primary);margin-bottom:8px;">
+        🔐 身份校验（必填安全锁）
+      </strong>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;">
+        <div>
+          <label class="field">当前管理员原密码 <span style="color:var(--err);">*</span></label>
+          <input type="password" name="current_password" required placeholder="输入当前原登录密码" autocomplete="current-password">
+          <div class="hint">必须验证原密码后方可修改用户名、密码或密保。</div>
+        </div>
+        <div>
+          {% if has_security_question %}
+          <label class="field">密保验证：{{ security_question }} <span style="color:var(--err);">*</span></label>
+          <input type="text" name="security_answer" required placeholder="输入密保问题答案" autocomplete="off">
+          <div class="hint">密保答案不区分大小写，经 PBKDF2 加盐哈希加密核验。</div>
+          {% else %}
+          <label class="field">密保验证</label>
+          <input type="text" disabled placeholder="首次配置请在下方直接选定密保" style="opacity:0.6;">
+          <div class="hint warn-text">请在下方「密保设置」中选定密保问题并输入答案。</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;">
+      <div>
+        <label class="field">新管理员用户名</label>
+        <input type="text" name="new_username" value="{{ admin_user }}" placeholder="至少2个字符" autocomplete="username">
+        <div class="hint">如需更改登录用户名请在此填写；保持不变可直接留空或保留原名。</div>
+      </div>
+      <div>
+        <label class="field">新登录密码</label>
+        <input type="password" name="new_password" placeholder="留空表示不修改原密码" minlength="6" autocomplete="new-password">
+        <div class="hint">如需更改密码请输入（至少6位）；不修改请保持留空。</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;">
+      <div>
+        <label class="field">确认新密码</label>
+        <input type="password" name="confirm_password" placeholder="再次输入新密码" minlength="6" autocomplete="new-password">
+        <div class="hint">仅在填写了新密码时需要确认输入。</div>
+      </div>
+      <div>
+        <label class="field">{% if has_security_question %}更新密保问题（可选）{% else %}设定密保问题（首次必填） <span style="color:var(--err);">*</span>{% endif %}</label>
+        <select name="new_security_question" id="secQSel" {% if not has_security_question %}required{% endif %}>
+          {% if has_security_question %}
+          <option value="">-- 保持原密保问题不变 --</option>
+          {% else %}
+          <option value="">-- 请选择密保问题 --</option>
+          {% endif %}
+          {% for q in preset_security_questions %}
+          <option value="{{ q }}">{{ q }}</option>
+          {% endfor %}
+        </select>
+        <div class="hint">用于忘记密码自服务重置及修改关键凭据时的身份保护锁。</div>
+      </div>
+    </div>
+
+    <div id="customSecQWrap" style="display:none;margin-top:12px;">
+      <label class="field">自定义密保问题内容 <span style="color:var(--err);">*</span></label>
+      <input type="text" name="new_security_question_custom" id="secQCustom" placeholder="请输入您的自定义密保问题">
+    </div>
+
+    <div id="newSecAnsWrap" style="display:{% if has_security_question %}none{% else %}block{% endif %};margin-top:12px;">
+      <label class="field">新密保问题答案 <span style="color:var(--err);">*</span></label>
+      <input type="text" name="new_security_answer" id="secAnsInput" placeholder="输入密保问题答案" {% if not has_security_question %}required{% endif %} autocomplete="off">
+      <div class="hint">请牢记该答案，采用 PBKDF2 60 万次加盐哈希安全存储。</div>
+    </div>
+
+    <div class="btn-row" style="margin-top:18px;">
+      <button class="btn primary" type="submit">保存管理员账户与安全设置</button>
+    </div>
+  </form>
 </div>
 
 <div class="card">
@@ -404,19 +653,129 @@
     sel.addEventListener('change', function(){ el.textContent = help[sel.value] || ''; });
   }
 
-  // AI 服务商预设：切换时把地址与模型名填进输入框，Key 不动（由用户粘贴）
+  // AI 服务商预设与 API Key 指引联动
   var aiPresets = {{{ ai_presets_json }}};
   var aiSel = document.getElementById('aiPresetSel');
   var aiBase = document.getElementById('aiBaseUrl');
   var aiModel = document.getElementById('aiModel');
   var aiHelp = document.getElementById('aiPresetHelp');
-  if (aiSel && aiBase && aiModel) {
-    aiSel.addEventListener('change', function(){
-      var p = aiPresets[aiSel.value];
-      if (!p) return;
-      if (p.base_url) aiBase.value = p.base_url;
-      if (p.model) aiModel.value = p.model;
-      aiHelp.textContent = p.hint || '';
+  var guidePortal = document.getElementById('guidePortalName');
+  var guideBtn = document.getElementById('guideKeyUrlBtn');
+  var guideHint = document.getElementById('guideHint');
+  var guideUrlDisplay = document.getElementById('guideUrlDisplay');
+  var keyFieldUrl = document.getElementById('aiKeyFieldUrl');
+  var keyFieldWrap = document.getElementById('aiKeyFieldUrlWrap');
+
+  function updateAiGuide(val) {
+    if (!aiPresets) return;
+    var p = aiPresets[val];
+    if (!p) return;
+    if (p.base_url && aiBase) aiBase.value = p.base_url;
+    if (p.model && aiModel) aiModel.value = p.model;
+    if (aiHelp) aiHelp.textContent = p.hint || '';
+    if (guidePortal) guidePortal.textContent = p.portal_name || p.label || '官方开放平台';
+    if (guideHint) guideHint.textContent = p.hint || '';
+
+    var guideBox = document.getElementById('aiKeyGuideBox');
+    if (guideBox) {
+      guideBox.style.transition = 'all 0.25s ease';
+      guideBox.style.borderLeftColor = 'var(--primary)';
+      guideBox.style.boxShadow = '0 0 0 2px rgba(24,95,165,0.35)';
+      setTimeout(function() {
+        guideBox.style.boxShadow = 'none';
+      }, 350);
+    }
+
+    if (p.key_url) {
+      if (guideBtn) {
+        guideBtn.href = p.key_url;
+        guideBtn.style.display = 'inline-flex';
+      }
+      if (guideUrlDisplay) {
+        guideUrlDisplay.innerHTML = '官网网络直达地址：<a id="guideKeyUrlText" href="' + p.key_url + '" target="_blank" rel="noopener" style="color:var(--primary);word-break:break-all;text-decoration:underline;font-weight:600;">' + p.key_url + ' ↗</a>';
+      }
+      if (keyFieldUrl) {
+        keyFieldUrl.href = p.key_url;
+        keyFieldUrl.textContent = p.key_url;
+      }
+      if (keyFieldWrap) keyFieldWrap.style.display = 'inline';
+    } else {
+      if (guideBtn) guideBtn.style.display = 'none';
+      if (guideUrlDisplay) guideUrlDisplay.innerHTML = '<span class="muted">自定义服务商：请填入自建或第三方代理的 API 地址及对应 Key</span>';
+      if (keyFieldWrap) keyFieldWrap.style.display = 'none';
+    }
+  }
+
+  if (aiSel) {
+    aiSel.addEventListener('change', function(){ updateAiGuide(aiSel.value); });
+    aiSel.addEventListener('input', function(){ updateAiGuide(aiSel.value); });
+    // 初始化运行一次，保证页面初次载入时指引卡片即刻同步
+    updateAiGuide(aiSel.value);
+  }
+
+  // 绑定速查表中各服务商「应用」按钮的即时切换
+  document.querySelectorAll('.btn-apply-ai').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var presetKey = btn.getAttribute('data-preset');
+      if (aiSel && presetKey) {
+        aiSel.value = presetKey;
+        updateAiGuide(presetKey);
+        var guideBox = document.getElementById('aiKeyGuideBox');
+        if (guideBox) {
+          guideBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    });
+  });
+
+  // ============ 管理员密保安全联动 ============
+  var secQSel = document.getElementById('secQSel');
+  var customSecQWrap = document.getElementById('customSecQWrap');
+  var secQCustom = document.getElementById('secQCustom');
+  var newSecAnsWrap = document.getElementById('newSecAnsWrap');
+  var secAnsInput = document.getElementById('secAnsInput');
+  var hasSecurityQ = {% if has_security_question %}true{% else %}false{% endif %};
+
+  if (secQSel) {
+    secQSel.addEventListener('change', function() {
+      var v = secQSel.value;
+      if (v === '自定义密保问题') {
+        if (customSecQWrap) customSecQWrap.style.display = 'block';
+        if (secQCustom) secQCustom.required = true;
+      } else {
+        if (customSecQWrap) customSecQWrap.style.display = 'none';
+        if (secQCustom) secQCustom.required = false;
+      }
+
+      if (v) {
+        if (newSecAnsWrap) newSecAnsWrap.style.display = 'block';
+        if (secAnsInput) secAnsInput.required = true;
+      } else {
+        if (hasSecurityQ) {
+          if (newSecAnsWrap) newSecAnsWrap.style.display = 'none';
+          if (secAnsInput) secAnsInput.required = false;
+        }
+      }
+    });
+  }
+
+  var adminCredForm = document.getElementById('adminCredForm');
+  if (adminCredForm) {
+    adminCredForm.addEventListener('submit', function(e) {
+      var p1 = adminCredForm.querySelector('input[name="new_password"]').value;
+      var p2 = adminCredForm.querySelector('input[name="confirm_password"]').value;
+      if (p1 || p2) {
+        if (p1.length < 6) {
+          alert('新密码长度不能少于 6 个字符');
+          e.preventDefault();
+          return false;
+        }
+        if (p1 !== p2) {
+          alert('两次输入的新密码不一致，请重新输入');
+          e.preventDefault();
+          return false;
+        }
+      }
     });
   }
 

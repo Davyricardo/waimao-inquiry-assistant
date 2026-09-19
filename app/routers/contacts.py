@@ -1,11 +1,13 @@
 """客户管理路由。"""
 import time
+from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from .. import ai_profile, auth, config, db, queries
+from ..ocr_engine import ocr_image_to_text, parse_contact_info
 from ..templating import render
 
 router = APIRouter()
@@ -18,15 +20,55 @@ def check_csrf(request: Request, token: str) -> bool:
     return bool(token) and token == auth.csrf_token(sess)
 
 
+@router.post("/contacts/ocr")
+async def contact_ocr(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    raw_text: Optional[str] = Form("")
+):
+    """本地 OCR 智能识别名片与社交媒体主页/网页截图 (0 Token 消耗)。"""
+    text = (raw_text or "").strip()
+    conf = 0.95
+
+    if file and file.filename:
+        content = await file.read()
+        if content:
+            extracted_text, score = ocr_image_to_text(content)
+            if extracted_text:
+                text = extracted_text
+                conf = score
+
+    if not text:
+        return JSONResponse({
+            "ok": False,
+            "msg": "未识别到有效文字，请上传清晰名片、社媒主页截图或直接粘贴文本"
+        }, status_code=400)
+
+    parsed = parse_contact_info(text)
+    return JSONResponse({
+        "ok": True,
+        "data": parsed,
+        "text": text,
+        "confidence": round(conf, 2),
+        "msg": "识别成功"
+    })
+
+
 @router.get("/contacts", response_class=HTMLResponse)
-def contacts_page(request: Request, page: int = 1, q: str = "",
+def contacts_page(request: Request, page: str = "1", q: str = "",
                   stage: str = "", min_score: str = "", ok: str = "", err: str = ""):
+    p = 1
+    try:
+        p = max(1, int(page)) if str(page).strip() else 1
+    except Exception:
+        p = 1
     ms = None
     try:
         ms = int(min_score) if min_score not in ("", None) else None
     except ValueError:
         ms = None
-    data = queries.list_contacts(page=page, q=q, stage=stage, min_score=ms)
+    queries.clean_spam_contacts()
+    data = queries.list_contacts(page=p, q=q, stage=stage, min_score=ms)
     return HTMLResponse(render(
         "contacts.html", data=data, ok=ok, err=err,
         f={"q": q, "stage": stage, "min_score": min_score},
@@ -48,21 +90,23 @@ def contacts_export(request: Request):
     )
 
 
+@router.post("/contacts")
 @router.post("/contacts/save")
 def contact_save(request: Request, contact_id: str = Form(""),
                  email: str = Form(""), name: str = Form(""),
                  company: str = Form(""), country: str = Form(""),
                  stage: str = Form("new"), company_type: str = Form(""),
                  channel_role: str = Form(""), credibility: str = Form(""),
-                 note: str = Form(""), csrf_tok: str = Form("")):
+                 note: str = Form(""), notes: str = Form(""), csrf_tok: str = Form("")):
     """新增或保存客户信息。"""
     if not check_csrf(request, csrf_tok):
         return RedirectResponse("/contacts?err=" + quote("请求校验失败，请重试"), status_code=303)
 
+    combined_note = (note or "").strip() or (notes or "").strip()
     ok, msg, cid = queries.save_contact({
         "id": contact_id, "email": email, "name": name, "company": company,
         "country": country, "stage": stage, "company_type": company_type,
-        "channel_role": channel_role, "credibility": credibility, "note": note,
+        "channel_role": channel_role, "credibility": credibility, "note": combined_note,
     })
 
     if not ok:

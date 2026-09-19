@@ -5,6 +5,7 @@
   </div>
   <div class="btn-row">
     <button class="btn primary sm" type="button" onclick="openNewModal()">+ 新建客户</button>
+    <button class="btn sm" type="button" onclick="openContactOcrModal()">📷 名片/社媒智能识别</button>
     <a class="btn sm" href="/contacts/export" download>导出 CSV</a>
     <button class="btn sm danger" type="button" onclick="openClearModal()">清空客户数据</button>
   </div>
@@ -147,11 +148,11 @@
   {% if data.pages > 1 %}
   <div class="pager">
     {% if data.page > 1 %}
-    <a href="/contacts?page={{ data.page - 1 }}&q={{ f.q }}&stage={{ f.stage }}&min_score={{ f.min_score }}">上一页</a>
+    <a href="/contacts?page={{ data.prev_page }}&q={{ f.q }}&stage={{ f.stage }}&min_score={{ f.min_score }}">上一页</a>
     {% endif %}
     <span class="cur">{{ data.page }} / {{ data.pages }}</span>
     {% if data.page < data.pages %}
-    <a href="/contacts?page={{ data.page + 1 }}&q={{ f.q }}&stage={{ f.stage }}&min_score={{ f.min_score }}">下一页</a>
+    <a href="/contacts?page={{ data.next_page }}&q={{ f.q }}&stage={{ f.stage }}&min_score={{ f.min_score }}">下一页</a>
     {% endif %}
   </div>
   {% endif %}
@@ -277,7 +278,188 @@
   </div>
 </div>
 
+<!-- 名片与社交媒体 OCR 识别建档模态弹窗 -->
+<div id="contact-ocr-modal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px);">
+  <div class="modal-card" style="background:var(--surface);border-radius:var(--radius);max-width:680px;width:100%;border:1px solid var(--border-strong);box-shadow:0 8px 30px rgba(0,0,0,0.25);padding:22px;max-height:92vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <h2 style="margin:0;font-size:16px;color:var(--text-1);display:flex;align-items:center;gap:6px;">
+        <span>📷</span> 名片与社媒主页智能 OCR 识别录入
+      </h2>
+      <button type="button" class="btn sm" onclick="closeModal('contact-ocr-modal')" style="padding:2px 8px;">✕</button>
+    </div>
+
+    <!-- OCR 本地识别区 -->
+    <div style="background:var(--surface-2);border:1px dashed var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:16px;">
+      <div style="font-weight:600;font-size:12.5px;color:var(--text-1);margin-bottom:4px;">
+        本地快速离线分析 (0 Token 消耗 · 保护外贸客户机密)
+      </div>
+      <div style="font-size:11.5px;color:var(--text-3);margin-bottom:10px;">
+        支持选择名片照片、LinkedIn 个人主页、Facebook / WhatsApp 联系卡、或客户官网截图（支持页面内直接 Ctrl+V 粘贴截图）。
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;">
+        <input type="file" id="contactOcrFileInput" accept="image/*" style="font-size:12px;">
+        <button class="btn primary sm" type="button" id="contactOcrBtn" onclick="runContactOcr()">⚡ 开始本地识别</button>
+      </div>
+      <div id="contactOcrTip" style="font-size:11px;color:var(--text-3);margin-top:8px;">
+        等待识别中... 选择或粘贴图片后，点击开始识别将自动提取字段并填入下方客户表单。
+      </div>
+    </div>
+
+    <!-- 客户结构化录入表单 -->
+    <form method="post" action="/contacts/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <div class="grid-2" style="gap:12px;">
+        <div>
+          <label class="field">客户姓名 *</label>
+          <input type="text" id="ocr-c-name" name="name" required placeholder="如 Michael Schmidt">
+        </div>
+        <div>
+          <label class="field">电子邮箱 *</label>
+          <input type="email" id="ocr-c-email" name="email" required placeholder="如 sourcing@schmidt-tools.de">
+        </div>
+      </div>
+
+      <div class="grid-2" style="gap:12px;margin-top:10px;">
+        <div>
+          <label class="field">公司名称</label>
+          <input type="text" id="ocr-c-company" name="company" placeholder="如 Schmidt Industrial GmbH">
+        </div>
+        <div>
+          <label class="field">职位 / 头衔</label>
+          <input type="text" id="ocr-c-position" name="company_type" placeholder="如 Purchasing Director">
+        </div>
+      </div>
+
+      <div class="grid-2" style="gap:12px;margin-top:10px;">
+        <div>
+          <label class="field">联系电话 / WhatsApp</label>
+          <input type="text" id="ocr-c-phone" name="note" placeholder="如 +49 89 12345678">
+        </div>
+        <div>
+          <label class="field">国家 / 地区</label>
+          <input type="text" id="ocr-c-country" name="country" placeholder="如 Germany / 德国">
+        </div>
+      </div>
+
+      <div class="grid-2" style="gap:12px;margin-top:10px;">
+        <div>
+          <label class="field">跟进阶段</label>
+          <select name="stage" id="ocr-c-stage">
+            <option value="new" selected>新客户 (new)</option>
+            <option value="engaging">沟通中 (engaging)</option>
+            <option value="quoted">已报价 (quoted)</option>
+            <option value="negotiating">洽谈中 (negotiating)</option>
+            <option value="won">已成交 (won)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">渠道角色</label>
+          <select name="channel_role" id="ocr-c-channel-role">
+            <option value="">未指定</option>
+            <option value="批发商">批发商</option>
+            <option value="进口商">进口商</option>
+            <option value="零售商">零售商</option>
+            <option value="贸易商">贸易商</option>
+            <option value="终端用户">终端用户</option>
+            <option value="OEM/ODM">OEM/ODM</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:10px;">
+        <label class="field">备忘记录 / OCR 提取详情</label>
+        <textarea id="ocr-c-notes" name="notes" rows="3" placeholder="名片或网页中识别出的其他信息（如网址、地址、业务范围等）"></textarea>
+      </div>
+
+      <div class="btn-row" style="justify-content:flex-end;margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">
+        <button type="button" class="btn" onclick="closeModal('contact-ocr-modal')">取消</button>
+        <button type="submit" class="btn primary">保存并录入客户库</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
+function openContactOcrModal() {
+  document.getElementById('contact-ocr-modal').style.display = 'flex';
+}
+
+function runContactOcr() {
+  var fileInput = document.getElementById('contactOcrFileInput');
+  var tip = document.getElementById('contactOcrTip');
+  var btn = document.getElementById('contactOcrBtn');
+
+  if (!fileInput.files || fileInput.files.length === 0) {
+    alert('请先选择名片图片或使用 Ctrl+V 粘贴截图！');
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 本地OCR分析中...';
+  tip.textContent = '正在调用本地 RapidOCR 引擎进行离线实体结构化提取 (0 Token)...';
+  tip.style.color = 'var(--primary)';
+
+  fetch('/contacts/ocr', {
+    method: 'POST',
+    body: formData
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(res) {
+    btn.disabled = false;
+    btn.textContent = '⚡ 开始本地识别';
+    if (!res.ok) {
+      tip.textContent = '❌ 识别失败: ' + (res.msg || '未知错误');
+      tip.style.color = 'var(--danger)';
+      return;
+    }
+    var d = res.data;
+    if (d.name && d.name !== '新客户线索') document.getElementById('ocr-c-name').value = d.name;
+    if (d.email) document.getElementById('ocr-c-email').value = d.email;
+    if (d.company) document.getElementById('ocr-c-company').value = d.company;
+    if (d.position) document.getElementById('ocr-c-position').value = d.position;
+    if (d.phone) document.getElementById('ocr-c-phone').value = d.phone;
+    if (d.country) document.getElementById('ocr-c-country').value = d.country;
+
+    var extraNotes = [];
+    if (d.website) extraNotes.push('官网: ' + d.website);
+    if (d.linkedin_url) extraNotes.push('LinkedIn: ' + d.linkedin_url);
+    if (d.phone) extraNotes.push('电话: ' + d.phone);
+    if (extraNotes.length > 0) {
+      document.getElementById('ocr-c-notes').value = extraNotes.join('\n');
+    }
+
+    tip.textContent = '✅ 本地识别完成！已自动回填姓名、邮箱、公司、电话与国家，请核对后点击保存。';
+    tip.style.color = 'var(--ok)';
+  })
+  .catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = '⚡ 开始本地识别';
+    tip.textContent = '❌ 网络请求异常: ' + err;
+    tip.style.color = 'var(--danger)';
+  });
+}
+
+// 支持在客户管理弹窗内直接粘贴截图识别
+window.addEventListener('paste', function(e) {
+  var modal = document.getElementById('contact-ocr-modal');
+  if (modal.style.display !== 'flex') return;
+  var items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].type.indexOf('image') !== -1) {
+      var file = items[i].getAsFile();
+      var dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      document.getElementById('contactOcrFileInput').files = dataTransfer.files;
+      runContactOcr();
+      break;
+    }
+  }
+});
+
 function openNewModal() {
   document.getElementById('modal-title').innerText = '新建客户';
   document.getElementById('form-contact-id').value = '';

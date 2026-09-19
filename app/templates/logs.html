@@ -1,0 +1,513 @@
+<div class="page-head">
+  <div>
+    <h1>日志与工作复盘中心</h1>
+    <p class="sub">每日工作进度检阅 · 大模型 Token 计费测算 · 24H 邮件收发时点与黄金沟通窗口</p>
+  </div>
+  <div class="btn-row">
+    {% if active_tab == 'daily' %}
+    <button class="btn primary sm" type="button" onclick="copyDailyReport()">📋 一键复制下班日报</button>
+    {% endif %}
+    <a href="/logs?tab={{ active_tab }}" class="btn sm">🔄 刷新数据</a>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<!-- 导航 Tab (液态磨砂玻璃胶囊) -->
+<div class="glass-tabs">
+  <a class="glass-tab {% if active_tab == 'daily' %}active{% endif %}" href="/logs?tab=daily&day={{ day }}">
+    <span class="tab-icon">📅</span> 每日工作检阅
+  </a>
+  <a class="glass-tab {% if active_tab == 'ai' %}active{% endif %}" href="/logs?tab=ai">
+    <span class="tab-icon">🤖</span> AI 模型与 Token 测算
+  </a>
+  <a class="glass-tab {% if active_tab == 'timing' %}active{% endif %}" href="/logs?tab=timing">
+    <span class="tab-icon">🕒</span> 24H 邮件时点与黄金窗口
+  </a>
+</div>
+
+<!-- ==========================================
+     TAB 1: 每日工作检阅与动作记录
+     ========================================== -->
+{% if active_tab == 'daily' %}
+<div class="card glass-card" style="margin-bottom:16px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+    <form method="get" action="/logs" style="display:flex;align-items:center;gap:10px;margin:0;">
+      <input type="hidden" name="tab" value="daily">
+      <label style="font-size:13px;font-weight:600;color:var(--text-2);">检阅日期：</label>
+      <input type="date" name="day" value="{{ day }}" onchange="this.form.submit()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-1);font-size:13px;">
+      <button class="btn sm" type="submit">切换日期</button>
+      <a href="/logs?tab=daily" class="btn sm ghost">今天</a>
+    </form>
+    <div style="font-size:12.5px;color:var(--text-3);">
+      正在检阅：<b style="color:var(--accent);">{{ daily.day }}</b> 的全部工作动作流水
+    </div>
+  </div>
+</div>
+
+<!-- 今日核心工作指标卡 -->
+<div class="liquid-grid" style="margin-bottom:20px;">
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(59, 130, 246, 0.12);color:#3b82f6;">✉️</div>
+    <div class="stat-body">
+      <div class="stat-label">对外发信 / 自动发送</div>
+      <div class="stat-value">{{ daily.sent_emails }} <small>封</small></div>
+      <div class="stat-foot">系统自动发送 {{ daily.auto_sent }} · 审核发送 {{ daily.drafts_approved }}</div>
+    </div>
+  </div>
+
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(16, 185, 129, 0.12);color:#10b981;">📥</div>
+    <div class="stat-body">
+      <div class="stat-label">买家来信 / 高意向询盘</div>
+      <div class="stat-value">{{ daily.received_emails }} <small>封</small></div>
+      <div class="stat-foot">高意向询盘 {{ daily.high_inquiries }} 封 · 待审草稿 {{ daily.drafts_pending }} 封</div>
+    </div>
+  </div>
+
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(245, 158, 11, 0.12);color:#f59e0b;">👥</div>
+    <div class="stat-body">
+      <div class="stat-label">新增客户 / 跟进互动</div>
+      <div class="stat-value">{{ daily.new_contacts }} <small>位</small></div>
+      <div class="stat-foot">客户互动跟进 {{ daily.followup_actions }} 次 · 社媒开发 {{ daily.social_outreach }} 次</div>
+    </div>
+  </div>
+
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(139, 92, 246, 0.12);color:#8b5cf6;">📑</div>
+    <div class="stat-body">
+      <div class="stat-label">单证录入 / 本地 OCR</div>
+      <div class="stat-value">{{ daily.new_vouchers }} <small>份</small></div>
+      <div class="stat-foot">本地智能 OCR 解析 {{ daily.ocr_vouchers }} 份 · 审计流水 {{ daily.total_actions }} 笔</div>
+    </div>
+  </div>
+
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(236, 72, 153, 0.12);color:#ec4899;">🤖</div>
+    <div class="stat-body">
+      <div class="stat-label">当日 AI 调用 / Token 花销</div>
+      <div class="stat-value">¥{{ daily.ai_cost_rmb }} <small>RMB</small></div>
+      <div class="stat-foot">调用 {{ daily.ai_calls }} 次 · 消耗 {{ daily.ai_tokens }} Tokens (${{ daily.ai_cost_usd }} USD)</div>
+    </div>
+  </div>
+</div>
+
+<!-- 下班工作日报生成器 (一键复制) -->
+<div class="card glass-card" style="margin-bottom:20px;border-left:4px solid var(--accent);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+    <div>
+      <h2 style="margin:0;font-size:16px;display:flex;align-items:center;gap:8px;">
+        <span>📋</span> 下班工作复盘日报（已为您自动排版提炼）
+      </h2>
+      <div style="font-size:12px;color:var(--text-3);margin-top:2px;">下班前检阅完毕，可点击按钮一键复制整洁文本，方便发送至企业微信/钉钉或工作日志汇报。</div>
+    </div>
+    <button class="btn primary sm" type="button" onclick="copyDailyReport()">
+      <span id="copyBtnIcon">📋</span> <span id="copyBtnText">一键复制日报</span>
+    </button>
+  </div>
+  <textarea id="dailyReportBox" readonly style="width:100%;min-height:160px;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;font-size:13px;line-height:1.6;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-1);resize:vertical;">{{ daily.daily_report_text }}</textarea>
+</div>
+
+<!-- 操作记录流水 (Audit Log) -->
+<div class="card glass-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+    <div>
+      <h2 style="margin:0;font-size:16px;">业务操作明细流水 ({{ audit.total }} 笔)</h2>
+      <div style="font-size:12px;color:var(--text-3);margin-top:2px;">真实记录发信、审批、客户修改、单证录入等每一步系统轨迹</div>
+    </div>
+    <form method="get" action="/logs" style="display:flex;align-items:center;gap:8px;margin:0;">
+      <input type="hidden" name="tab" value="daily">
+      <input type="hidden" name="day" value="{{ day }}">
+      <input type="text" name="action_type" value="{{ action_type }}" placeholder="筛选动作类型 (如 send, voucher...)" style="padding:6px 10px;font-size:12.5px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-1);width:210px;">
+      <button class="btn sm" type="submit">筛选</button>
+      {% if action_type %}
+      <a href="/logs?tab=daily&day={{ day }}" class="btn sm ghost">清空</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:130px;">时间</th>
+          <th style="width:100px;">操作主体</th>
+          <th style="width:150px;">动作类型</th>
+          <th style="width:120px;">关联对象</th>
+          <th>操作明细</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in audit.items %}
+        <tr>
+          <td style="color:var(--text-3);font-size:12.5px;">{{ ts_fmt(r.ts) }}</td>
+          <td><span class="tag sm" style="background:var(--surface-2);color:var(--text-2);">{{ r.actor or "system" }}</span></td>
+          <td><b style="color:var(--text-1);font-size:13px;">{{ r.action }}</b></td>
+          <td>
+            {% if r.target_type %}
+            <span class="tag sm" style="background:rgba(59,130,246,0.1);color:#3b82f6;">{{ r.target_type }}{% if r.target_id %} #{{ r.target_id }}{% endif %}</span>
+            {% else %}
+            <span style="color:var(--text-4);">—</span>
+            {% endif %}
+          </td>
+          <td style="color:var(--text-2);font-size:13px;">{{ r.detail or "—" }}</td>
+        </tr>
+        {% endfor %}
+        {% if not audit.items %}
+        <tr>
+          <td colspan="5" style="text-align:center;color:var(--text-3);padding:30px;">该日期暂无符合条件的操作记录</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 分页器 -->
+  {% if audit.total_pages > 1 %}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12.5px;color:var(--text-3);">
+    <div>第 {{ audit.page }} / {{ audit.total_pages }} 页 · 共 {{ audit.total }} 笔</div>
+    <div class="btn-row">
+      {% if audit.has_prev %}
+      <a href="/logs?tab=daily&day={{ day }}&action_type={{ action_type }}&audit_page={{ audit.page - 1 }}" class="btn sm">上一页</a>
+      {% endif %}
+      {% if audit.has_next %}
+      <a href="/logs?tab=daily&day={{ day }}&action_type={{ action_type }}&audit_page={{ audit.page + 1 }}" class="btn sm">下一页</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ==========================================
+     TAB 2: 大模型调用与 Token 测算
+     ========================================== -->
+{% if active_tab == 'ai' %}
+<!-- 累计指标概览 -->
+<div class="liquid-grid" style="margin-bottom:20px;">
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(59, 130, 246, 0.12);color:#3b82f6;">⚡</div>
+    <div class="stat-body">
+      <div class="stat-label">AI 累计调用次数</div>
+      <div class="stat-value">{{ ai.calls }} <small>次</small></div>
+      <div class="stat-foot">调用成功率 {{ ai.success_rate }}%</div>
+    </div>
+  </div>
+
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(16, 185, 129, 0.12);color:#10b981;">🪙</div>
+    <div class="stat-body">
+      <div class="stat-label">Token 消耗总计</div>
+      <div class="stat-value">{{ ai.total_tokens }}</div>
+      <div class="stat-foot">输入 {{ ai.prompt_tokens }} · 输出 {{ ai.completion_tokens }}</div>
+    </div>
+  </div>
+
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(245, 158, 11, 0.12);color:#f59e0b;">💰</div>
+    <div class="stat-body">
+      <div class="stat-label">测算折合总费用 (RMB)</div>
+      <div class="stat-value" style="color:var(--accent);">¥{{ ai.cost_rmb }}</div>
+      <div class="stat-foot">折合 ${{ ai.cost_usd }} USD (按官方 $0.27/$1.10)</div>
+    </div>
+  </div>
+
+  <div class="glass-card stat-card">
+    <div class="stat-icon-wrap" style="background:rgba(139, 92, 246, 0.12);color:#8b5cf6;">⏱️</div>
+    <div class="stat-body">
+      <div class="stat-label">平均响应延迟</div>
+      <div class="stat-value">{{ ai.avg_latency }} <small>ms</small></div>
+      <div class="stat-foot">直连原厂 OpenAI/DeepSeek 兼容端点</div>
+    </div>
+  </div>
+</div>
+
+<!-- 计费模型与性价比说明 -->
+<div class="card glass-card" style="margin-bottom:20px;border-left:4px solid #10b981;">
+  <div style="display:flex;align-items:flex-start;gap:12px;">
+    <div style="font-size:24px;">💡</div>
+    <div>
+      <div style="font-weight:700;font-size:14.5px;color:var(--text-1);margin-bottom:4px;">透明 Token 计费测算标准</div>
+      <div style="font-size:12.5px;color:var(--text-2);line-height:1.6;">
+        本系统统一采用行业性价比标杆 <b>DeepSeek 原厂官方计费标准</b> 精确测算：输入 Prompt <b>$0.27 / 1,000,000 Tokens</b>，输出 Completion <b>$1.10 / 1,000,000 Tokens</b>，实时汇率换算约为 1 USD ≈ 7.2 RMB。<br>
+        通过「本地规则过滤垃圾邮件 + 仅对重点询盘调用模型 + 紧凑系统提示词」架构设计，每次询盘深度分析成本不足 <b>¥0.001 元</b>，极大降低外贸团队智能化成本。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 用途分布统计 -->
+<div class="card glass-card" style="margin-bottom:20px;">
+  <h2 style="margin:0 0 14px 0;font-size:16px;">AI 业务用途分布与费用占比</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:14px;">
+    {% for p in ai.purposes %}
+    <div style="background:var(--surface-2);border-radius:10px;padding:12px 16px;border:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:600;font-size:13.5px;color:var(--text-1);">{{ p.label }}</span>
+        <span class="tag sm" style="background:rgba(59,130,246,0.1);color:#3b82f6;">{{ p.calls }} 次</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-3);margin-bottom:6px;">
+        <span>{{ p.tokens }} Tokens ({{ p.pct }}%)</span>
+        <span style="font-weight:600;color:var(--text-1);">¥{{ p.cost_rmb }}</span>
+      </div>
+      <div style="height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden;">
+        <div style="width:{{ p.pct }}%;height:100%;background:linear-gradient(90deg, #3b82f6, #60a5fa);border-radius:3px;"></div>
+      </div>
+    </div>
+    {% endfor %}
+    {% if not ai.purposes %}
+    <div style="color:var(--text-3);font-size:13px;padding:10px;">暂无调用数据记录</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- 过去 30 天日度走势 -->
+<div class="card glass-card" style="margin-bottom:20px;">
+  <h2 style="margin:0 0 14px 0;font-size:16px;">日度 Token 消耗与费用趋势 (最近 30 天)</h2>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th>调用次数</th>
+          <th>Token 消耗量</th>
+          <th>折合费用 (RMB)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in ai.daily_trends %}
+        <tr>
+          <td><b>{{ t.day }}</b></td>
+          <td>{{ t.calls }} 次</td>
+          <td>{{ t.tokens }}</td>
+          <td style="color:var(--accent);font-weight:600;">¥{{ t.cost_rmb }}</td>
+        </tr>
+        {% endfor %}
+        {% if not ai.daily_trends %}
+        <tr>
+          <td colspan="4" style="text-align:center;color:var(--text-3);padding:24px;">暂无日度统计快照</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- AI 调用流水明细表 -->
+<div class="card glass-card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+    <div>
+      <h2 style="margin:0;font-size:16px;">AI 实时调用明细记录 ({{ ai_logs.total }} 笔)</h2>
+      <div style="font-size:12px;color:var(--text-3);margin-top:2px;">记录单次请求的 Prompt/Completion Tokens、响应耗时与状态</div>
+    </div>
+    <form method="get" action="/logs" style="display:flex;align-items:center;gap:8px;margin:0;">
+      <input type="hidden" name="tab" value="ai">
+      <select name="ai_purpose" style="padding:6px 10px;font-size:12.5px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-1);">
+        <option value="">全部用途</option>
+        <option value="analysis" {% if ai_purpose == 'analysis' %}selected{% endif %}>询盘分类与打分</option>
+        <option value="summary" {% if ai_purpose == 'summary' %}selected{% endif %}>智能中文摘要</option>
+        <option value="draft" {% if ai_purpose == 'draft' %}selected{% endif %}>回复草稿起草</option>
+        <option value="profile" {% if ai_purpose == 'profile' %}selected{% endif %}>买家深度背调</option>
+        <option value="test" {% if ai_purpose == 'test' %}selected{% endif %}>连通测试</option>
+      </select>
+      <select name="ai_status" style="padding:6px 10px;font-size:12.5px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-1);">
+        <option value="">全部状态</option>
+        <option value="ok" {% if ai_status == 'ok' %}selected{% endif %}>正常 (ok)</option>
+        <option value="error" {% if ai_status == 'error' %}selected{% endif %}>异常 (error)</option>
+      </select>
+      <button class="btn sm" type="submit">筛选</button>
+      {% if ai_purpose or ai_status %}
+      <a href="/logs?tab=ai" class="btn sm ghost">重置</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:125px;">时间</th>
+          <th style="width:120px;">模型</th>
+          <th style="width:140px;">业务用途</th>
+          <th>Token 明细 (入/出/总)</th>
+          <th style="width:110px;">花费 (RMB)</th>
+          <th style="width:90px;">延迟</th>
+          <th style="width:80px;">状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in ai_logs.items %}
+        <tr>
+          <td style="color:var(--text-3);font-size:12.5px;">{{ ts_fmt(r.ts) }}</td>
+          <td><span style="font-family:monospace;font-size:12px;color:var(--text-2);">{{ r.model }}</span></td>
+          <td>
+            <span class="tag sm" style="background:rgba(59,130,246,0.1);color:#3b82f6;">{{ r.purpose }}</span>
+            {% if r.message_id %}<small style="color:var(--text-3);">M#{{ r.message_id }}</small>{% endif %}
+            {% if r.contact_id %}<small style="color:var(--text-3);">C#{{ r.contact_id }}</small>{% endif %}
+          </td>
+          <td style="font-size:12.5px;font-family:monospace;">
+            <span style="color:var(--text-2);">{{ r.prompt_tokens }}</span> /
+            <span style="color:var(--text-2);">{{ r.completion_tokens }}</span> /
+            <b style="color:var(--text-1);">{{ r.total_tokens }}</b>
+          </td>
+          <td style="color:var(--accent);font-weight:600;font-size:13px;">¥{{ r.cost_rmb }}</td>
+          <td style="color:var(--text-3);font-size:12.5px;">{% if r.latency_ms %}{{ r.latency_ms }}ms{% else %}—{% endif %}</td>
+          <td>
+            {% if r.status == 'ok' %}
+            <span class="tag sm ok">成功</span>
+            {% else %}
+            <span class="tag sm danger" title="{{ r.error_msg }}">失败</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not ai_logs.items %}
+        <tr>
+          <td colspan="7" style="text-align:center;color:var(--text-3);padding:30px;">暂无符合条件的 AI 调用流水</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 分页器 -->
+  {% if ai_logs.total_pages > 1 %}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12.5px;color:var(--text-3);">
+    <div>第 {{ ai_logs.page }} / {{ ai_logs.total_pages }} 页 · 共 {{ ai_logs.total }} 笔</div>
+    <div class="btn-row">
+      {% if ai_logs.has_prev %}
+      <a href="/logs?tab=ai&ai_purpose={{ ai_purpose }}&ai_status={{ ai_status }}&ai_page={{ ai_logs.page - 1 }}" class="btn sm">上一页</a>
+      {% endif %}
+      {% if ai_logs.has_next %}
+      <a href="/logs?tab=ai&ai_purpose={{ ai_purpose }}&ai_status={{ ai_status }}&ai_page={{ ai_logs.page + 1 }}" class="btn sm">下一页</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ==========================================
+     TAB 3: 24H 邮件时点分析与黄金窗口
+     ========================================== -->
+{% if active_tab == 'timing' %}
+<!-- 时段亮点摘要横幅 -->
+<div class="card glass-card" style="margin-bottom:20px;background:linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(16, 185, 129, 0.08));border:1px solid rgba(59, 130, 246, 0.2);">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
+    <div>
+      <div style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;">📈 邮件时点智能洞察</div>
+      <h2 style="margin:4px 0 6px 0;font-size:17px;color:var(--text-1);">
+        买家来信最高峰：北京时间 <span style="color:#3b82f6;">{{ timing.peak_in_hour }}:00</span> · 我方发信集中时段：北京时间 <span style="color:#10b981;">{{ timing.peak_out_hour }}:00</span>
+      </h2>
+      <div style="font-size:13px;color:var(--text-2);line-height:1.5;">
+        结合全球 120+ 外贸伙伴当地作息，建议在目标买家当地早间上班时（08:30-10:00）或午休后（13:30-14:30）将邮件送达，回复率可提升 <b>35%~60%</b>。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 24H 邮件收发分布图表 -->
+<div class="card glass-card" style="margin-bottom:24px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;">
+    <div>
+      <h2 style="margin:0;font-size:16px;">24 小时邮件收发时点全天分布 (北京时间 00:00 - 23:00)</h2>
+      <div style="font-size:12px;color:var(--text-3);margin-top:2px;">统计每整点接收买家邮件与我方回复发信量</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;font-size:12.5px;">
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;background:#3b82f6;border-radius:3px;display:inline-block;"></span> 买家来信
+      </span>
+      <span style="display:flex;align-items:center;gap:6px;">
+        <span style="width:12px;height:12px;background:#10b981;border-radius:3px;display:inline-block;"></span> 我方发信
+      </span>
+    </div>
+  </div>
+
+  <!-- 24小时可视化柱状对比 -->
+  <div style="display:grid;grid-template-columns:repeat(24, 1fr);gap:4px;align-items:end;height:180px;padding:10px 0 24px 0;border-bottom:1px solid var(--border);position:relative;">
+    {% for h in timing.hours_data %}
+    <div style="display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;position:relative;" title="{{ h.hour_label }} · 收到 {{ h.in_count }} 封 (高意向 {{ h.high_count }}) / 发出 {{ h.out_count }} 封">
+      <div style="display:flex;gap:2px;align-items:flex-end;width:100%;height:100%;">
+        <!-- 买家来信柱 -->
+        <div style="flex:1;background:#3b82f6;border-radius:3px 3px 0 0;min-height:2px;height:{% if timing.max_in > 0 %}{{ (h.in_count * 100) // timing.max_in }}%{% else %}2px{% endif %};transition:height 0.3s ease;"></div>
+        <!-- 我方发信柱 -->
+        <div style="flex:1;background:#10b981;border-radius:3px 3px 0 0;min-height:2px;height:{% if timing.max_out > 0 %}{{ (h.out_count * 100) // timing.max_out }}%{% else %}2px{% endif %};transition:height 0.3s ease;"></div>
+      </div>
+      <div style="position:absolute;bottom:-20px;font-size:10.5px;color:var(--text-3);transform:scale(0.9);">{{ h.hour }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-4);margin-top:8px;">
+    <span>00:00 (深夜)</span>
+    <span>06:00 (早晨)</span>
+    <span>12:00 (中午)</span>
+    <span>18:00 (傍晚)</span>
+    <span>23:00 (夜间)</span>
+  </div>
+</div>
+
+<!-- 全球主要外贸区域黄金沟通时段建议 -->
+<div class="card glass-card">
+  <div style="margin-bottom:16px;">
+    <h2 style="margin:0;font-size:16px;">主要外贸目标区域黄金沟通时段实战建议</h2>
+    <div style="font-size:12px;color:var(--text-3);margin-top:2px;">结合外贸客户作息、工作日/周末文化与夏令时规则制定</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;">
+    {% for reg in timing.regions %}
+    <div class="glass-card" style="padding:16px;background:var(--surface-2);border-radius:12px;border:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <h3 style="margin:0;font-size:15px;color:var(--text-1);">{{ reg.region }}</h3>
+        <span class="tag sm" style="background:rgba(16,185,129,0.12);color:#10b981;font-weight:600;">{{ reg.status_badge }}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-3);margin-bottom:10px;">
+        <b>覆盖市场：</b>{{ reg.countries }}<br>
+        <b>时区特征：</b>{{ reg.tz_desc }}
+      </div>
+      <div style="background:var(--surface-1);padding:10px 12px;border-radius:8px;border:1px solid var(--border);margin-bottom:10px;">
+        <div style="font-size:11.5px;color:var(--text-3);">🔥 北京时间黄金收件箱置顶时段：</div>
+        <div style="font-size:14px;font-weight:700;color:var(--accent);margin-top:2px;">{{ reg.golden_bj_window }}</div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:4px;">当地常规商务作息：{{ reg.work_bj_window }}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-2);line-height:1.5;">
+        <b>实战建议：</b>{{ reg.advice }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<script>
+function copyDailyReport() {
+  const box = document.getElementById("dailyReportBox");
+  if (!box) return;
+  box.select();
+  box.setSelectionRange(0, 99999);
+  
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(box.value).then(onCopySuccess).catch(() => {
+      document.execCommand('copy');
+      onCopySuccess();
+    });
+  } else {
+    document.execCommand('copy');
+    onCopySuccess();
+  }
+}
+
+function onCopySuccess() {
+  const icon = document.getElementById("copyBtnIcon");
+  const text = document.getElementById("copyBtnText");
+  if (icon && text) {
+    icon.textContent = "✅";
+    text.textContent = "已成功复制到剪贴板！";
+    setTimeout(() => {
+      icon.textContent = "📋";
+      text.textContent = "一键复制日报";
+    }, 2500);
+  }
+}
+</script>

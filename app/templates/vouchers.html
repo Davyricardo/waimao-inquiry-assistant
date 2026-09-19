@@ -1,0 +1,593 @@
+<div class="page-head">
+  <div>
+    <h1>凭证管理</h1>
+    <p class="sub">共 {{ data.total }} 张单证凭证 · 本地 OCR 智能识别 · 外贸商业发票、提单、合同与结汇水单台账</p>
+  </div>
+  <div class="btn-row">
+    <button class="btn primary sm" type="button" onclick="openNewVoucherModal()">+ 新建/识别凭证</button>
+    <button class="btn sm" type="button" onclick="triggerBatchAction('export')">批量导出 CSV</button>
+    <button class="btn sm danger" type="button" onclick="triggerBatchAction('delete')">批量删除</button>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<!-- 统计指标卡片 -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;margin-bottom:16px;">
+  <div class="card" style="padding:12px 16px;margin:0;">
+    <div style="font-size:12px;color:var(--text-3);">单证总数</div>
+    <div style="font-size:22px;font-weight:700;color:var(--text-1);margin-top:4px;">{{ stats.total }} <small style="font-size:12px;font-weight:400;color:var(--text-3);">张</small></div>
+  </div>
+  <div class="card" style="padding:12px 16px;margin:0;">
+    <div style="font-size:12px;color:var(--text-3);">已确认有效凭证</div>
+    <div style="font-size:22px;font-weight:700;color:var(--ok);margin-top:4px;">{{ stats.confirmed }}</div>
+  </div>
+  <div class="card" style="padding:12px 16px;margin:0;">
+    <div style="font-size:12px;color:var(--text-3);">待复核凭证</div>
+    <div style="font-size:22px;font-weight:700;color:var(--warn);margin-top:4px;">{{ stats.pending }}</div>
+  </div>
+  <div class="card" style="padding:12px 16px;margin:0;">
+    <div style="font-size:12px;color:var(--text-3);">本地 OCR 智能解析</div>
+    <div style="font-size:22px;font-weight:700;color:var(--primary);margin-top:4px;">{{ stats.ocr_done }}</div>
+  </div>
+  <div class="card" style="padding:12px 16px;margin:0;">
+    <div style="font-size:12px;color:var(--text-3);">有效凭证金额合计 (USD)</div>
+    <div style="font-size:20px;font-weight:700;color:var(--text-1);margin-top:4px;">
+      ${{ "{:,.2f}".format(stats.amounts.get('USD', 0.0)) }}
+    </div>
+  </div>
+</div>
+
+<!-- 检索与筛选表单 -->
+<div class="card">
+  <form method="get" action="/vouchers">
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.5fr) minmax(0,1.2fr) auto;gap:12px;align-items:end;">
+      <div>
+        <label class="field">关键词检索</label>
+        <input type="text" name="q" value="{{ f.q }}" placeholder="凭证单号 / 买卖双方 / 品名 / 客户名">
+      </div>
+      <div>
+        <label class="field">单证类型</label>
+        <select name="voucher_type">
+          <option value="">全部单证类型</option>
+          {% for k, v in type_names.items() %}
+          <option value="{{ k }}" {% if f.voucher_type == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="field">状态</label>
+        <select name="status">
+          <option value="">全部状态</option>
+          {% for k, v in status_names.items() %}
+          <option value="{{ k }}" {% if f.status == k %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn primary" type="submit">筛选</button>
+        {% if f.q or f.voucher_type or f.status %}
+        <a class="btn" href="/vouchers" style="display:inline-flex;align-items:center;">重置</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- 凭证表格列表 -->
+<div class="card">
+  <form id="batchForm" method="post" action="/vouchers/batch">
+    <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+    <input type="hidden" name="batch_action" id="batchActionInput" value="">
+    <input type="hidden" name="target_status" id="batchStatusInput" value="confirmed">
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:13px;color:var(--text-2);">
+        已选中 <b id="selectedCount">0</b> 项
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <span style="font-size:12px;color:var(--text-3);">批量标记状态:</span>
+        <button class="btn sm" type="button" onclick="batchSetStatus('confirmed')">设为已确认</button>
+        <button class="btn sm" type="button" onclick="batchSetStatus('archived')">设为已归档</button>
+      </div>
+    </div>
+
+    {% if data.items %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:36px;text-align:center;">
+              <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)">
+            </th>
+            <th>单证编号</th>
+            <th>类型</th>
+            <th>标题 / 货物品名</th>
+            <th>业务日期</th>
+            <th style="text-align:right;">币种金额</th>
+            <th>关联主体</th>
+            <th>OCR状态</th>
+            <th>单据状态</th>
+            <th style="text-align:center;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in data.items %}
+          <tr>
+            <td style="text-align:center;">
+              <input type="checkbox" name="vids" value="{{ v.id }}" class="voucher-chk" onchange="updateSelectedCount()">
+            </td>
+            <td>
+              <span style="font-family:monospace;font-weight:600;color:var(--primary);">{{ v.voucher_no }}</span>
+            </td>
+            <td>
+              <span class="tag {% if v.voucher_type == 'commercial_invoice' %}ok{% elif v.voucher_type == 'bill_of_lading' %}warn{% elif v.voucher_type == 'bank_slip' %}hi{% endif %}">
+                {{ v.voucher_type_cn }}
+              </span>
+            </td>
+            <td>
+              <div style="font-weight:500;">{{ v.title or '-' }}</div>
+              {% if v.product_desc %}
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px;">品名: {{{ truncate(v.product_desc, 40) }}}</div>
+              {% endif %}
+            </td>
+            <td>
+              <span style="font-size:12px;color:var(--text-2);">{{ v.trade_date or '-' }}</span>
+            </td>
+            <td style="text-align:right;white-space:nowrap;">
+              <span style="font-weight:600;color:var(--text-1);">{{ v.currency }} {{ "{:,.2f}".format(v.amount) }}</span>
+            </td>
+            <td>
+              {% if v.contact_name %}
+              <div style="font-size:12px;"><a href="/contacts/{{ v.contact_id }}">{{ v.contact_name }}</a></div>
+              {% endif %}
+              {% if v.order_no_rel %}
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px;"><a href="/orders/{{ v.order_id }}">订单: {{ v.order_no_rel }}</a></div>
+              {% endif %}
+              {% if not v.contact_name and not v.order_no_rel %}
+              <span style="color:var(--text-3);font-size:12px;">-</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if v.ocr_status == 'success' %}
+              <span class="tag ok sm">⚡ 本地OCR</span>
+              {% elif v.ocr_status == 'manual' %}
+              <span class="tag sm">手动录入</span>
+              {% else %}
+              <span class="tag warn sm">{{ v.ocr_status }}</span>
+              {% endif %}
+            </td>
+            <td>
+              <span class="tag sm {% if v.status == 'confirmed' %}ok{% elif v.status == 'pending' %}warn{% else %}c-other{% endif %}">
+                {{ v.status_cn }}
+              </span>
+            </td>
+            <td style="text-align:center;white-space:nowrap;">
+              <button class="btn sm" type="button" onclick="openEditVoucherModal({{ v.id }})">详情/编辑</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页条 -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;flex-wrap:wrap;gap:10px;">
+      <div style="font-size:12px;color:var(--text-3);">
+        第 {{ data.page }} / {{ data.total_pages }} 页 · 共 {{ data.total }} 条单证记录
+      </div>
+      <div style="display:flex;gap:6px;">
+        {% if data.has_prev %}
+        <a class="btn sm" href="/vouchers?page={{ data.page - 1 }}&q={{ f.q }}&voucher_type={{ f.voucher_type }}&status={{ f.status }}">上一页</a>
+        {% endif %}
+        {% if data.has_next %}
+        <a class="btn sm" href="/vouchers?page={{ data.page + 1 }}&q={{ f.q }}&voucher_type={{ f.voucher_type }}&status={{ f.status }}">下一页</a>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="empty">
+      暂无单证与凭证记录。<br>
+      点击右上角「+ 新建/识别凭证」即可通过本地 OCR 识别并录入外贸单据。
+    </div>
+    {% endif %}
+  </form>
+</div>
+
+<!-- 新建/识别外贸凭证 Modal -->
+<div id="newVoucherModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div class="card" style="width:100%;max-width:760px;margin:20px;max-height:92vh;overflow-y:auto;box-shadow:var(--shadow-xl);border:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <h3 style="margin:0;font-size:17px;">新建外贸单证凭证 (支持本地 OCR 智能识别)</h3>
+      <button type="button" class="btn sm" onclick="closeNewVoucherModal()" style="padding:2px 8px;">✕</button>
+    </div>
+
+    <!-- OCR 本地识别区 -->
+    <div style="background:var(--surface-2);border:1px dashed var(--border);border-radius:var(--radius-md);padding:14px;margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-weight:600;font-size:13px;color:var(--text-1);">📷 本地 OCR 单证识别区 (0 Token 离线提取)</span>
+        <span style="font-size:11px;color:var(--text-3);">支持商业发票/PI/装箱单/提单/水单图片，支持剪贴板粘贴截图</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;">
+        <input type="file" id="ocrFileInput" accept="image/*" style="font-size:12px;">
+        <button class="btn primary sm" type="button" id="ocrStartBtn" onclick="runVoucherOcr()">⚡ 开始本地识别</button>
+      </div>
+      <div id="ocrStatusTip" style="font-size:11px;color:var(--text-3);margin-top:8px;">
+        提示：点击选择图片或在页面内直接使用 Ctrl+V 粘贴截图，点击识别即可自动填报下方表单。
+      </div>
+    </div>
+
+    <!-- 凭证结构化表单 -->
+    <form method="post" action="/vouchers" id="voucherCreateForm">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="ocr_status" id="f_ocr_status" value="manual">
+      <input type="hidden" name="ocr_raw_text" id="f_ocr_raw_text" value="">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">单证类型 *</label>
+          <select name="voucher_type" id="f_voucher_type" required>
+            {% for k, v in type_names.items() %}
+            <option value="{{ k }}">{{ v }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field">单证/发票编号 *</label>
+          <input type="text" name="voucher_no" id="f_voucher_no" required placeholder="如 INV-20260901 或 BL-MSKU123">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">凭证标题/简述</label>
+          <input type="text" name="title" id="f_title" placeholder="如 商业发票 INV-20260901">
+        </div>
+        <div>
+          <label class="field">币种</label>
+          <select name="currency" id="f_currency">
+            <option value="USD">USD - 美元</option>
+            <option value="EUR">EUR - 欧元</option>
+            <option value="CNY">CNY - 人民币</option>
+            <option value="GBP">GBP - 英镑</option>
+            <option value="JPY">JPY - 日元</option>
+            <option value="AUD">AUD - 澳元</option>
+            <option value="CAD">CAD - 加元</option>
+            <option value="HKD">HKD - 港币</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">单证金额 *</label>
+          <input type="number" step="0.01" name="amount" id="f_amount" required value="0.00">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">业务日期</label>
+          <input type="date" name="trade_date" id="f_trade_date">
+        </div>
+        <div>
+          <label class="field">关联客户</label>
+          <select name="contact_id" id="f_contact_id">
+            <option value="">-- 未关联客户 --</option>
+            {% for c in contacts %}
+            <option value="{{ c.id }}">{{ c.name }}{% if c.company %} ({{ c.company }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field">关联订单</label>
+          <select name="order_id" id="f_order_id">
+            <option value="">-- 未关联订单 --</option>
+            {% for o in orders %}
+            <option value="{{ o.id }}">{{ o.order_no }} ({{ o.title }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">发货人 / 卖方主体</label>
+          <input type="text" name="shipper" id="f_shipper" placeholder="如 Shenzhen Exporter Co., Ltd.">
+        </div>
+        <div>
+          <label class="field">收货人 / 买方主体</label>
+          <input type="text" name="consignee" id="f_consignee" placeholder="如 Global Buyer Imports LLC">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label class="field">品名 / 货物与装箱描述</label>
+        <textarea name="product_desc" id="f_product_desc" rows="2" placeholder="如 Industrial AC Motors, 1500 sets"></textarea>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:14px;">
+        <div>
+          <label class="field">核对状态</label>
+          <select name="status" id="f_status">
+            <option value="confirmed" selected>已确认 (confirmed)</option>
+            <option value="pending">待核对 (pending)</option>
+            <option value="archived">已归档 (archived)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">备注备忘</label>
+          <input type="text" name="notes" id="f_notes" placeholder="单据存放位置、原件归档说明等">
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:10px;border-top:1px solid var(--border);padding-top:12px;">
+        <button class="btn" type="button" onclick="closeNewVoucherModal()">取消</button>
+        <button class="btn primary" type="submit">保存单证入库</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 凭证详情/编辑 Modal -->
+<div id="editVoucherModal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);">
+  <div class="card" style="width:100%;max-width:680px;margin:20px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-xl);border:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <h3 style="margin:0;font-size:16px;">单证凭证详情与修改</h3>
+      <button type="button" class="btn sm" onclick="closeEditVoucherModal()" style="padding:2px 8px;">✕</button>
+    </div>
+
+    <form method="post" id="voucherEditForm" action="">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">单证类型</label>
+          <select name="voucher_type" id="e_voucher_type">
+            {% for k, v in type_names.items() %}
+            <option value="{{ k }}">{{ v }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field">单据编号</label>
+          <input type="text" name="voucher_no" id="e_voucher_no" required>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">标题/简述</label>
+          <input type="text" name="title" id="e_title">
+        </div>
+        <div>
+          <label class="field">币种</label>
+          <select name="currency" id="e_currency">
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="CNY">CNY</option>
+            <option value="GBP">GBP</option>
+            <option value="JPY">JPY</option>
+            <option value="AUD">AUD</option>
+            <option value="CAD">CAD</option>
+            <option value="HKD">HKD</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">金额</label>
+          <input type="number" step="0.01" name="amount" id="e_amount" required>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">业务日期</label>
+          <input type="date" name="trade_date" id="e_trade_date">
+        </div>
+        <div>
+          <label class="field">关联客户</label>
+          <select name="contact_id" id="e_contact_id">
+            <option value="">-- 无 --</option>
+            {% for c in contacts %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field">状态</label>
+          <select name="status" id="e_status">
+            <option value="confirmed">已确认</option>
+            <option value="pending">待核对</option>
+            <option value="archived">已归档</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label class="field">货物描述</label>
+        <textarea name="product_desc" id="e_product_desc" rows="2"></textarea>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label class="field">OCR 识别原始文本 (参考)</label>
+        <div id="e_ocr_raw_text" style="font-size:11px;color:var(--text-2);background:var(--surface-2);padding:8px;border-radius:var(--radius-sm);max-height:120px;overflow-y:auto;white-space:pre-wrap;"></div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:12px;">
+        <button class="btn danger sm" type="button" id="deleteVoucherBtn" onclick="deleteCurrentVoucher()">删除凭证</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn" type="button" onclick="closeEditVoucherModal()">取消</button>
+          <button class="btn primary" type="submit">保存更新</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+var currentEditVid = null;
+
+function openNewVoucherModal() {
+  document.getElementById('newVoucherModal').style.display = 'flex';
+}
+
+function closeNewVoucherModal() {
+  document.getElementById('newVoucherModal').style.display = 'none';
+}
+
+function openEditVoucherModal(vid) {
+  currentEditVid = vid;
+  fetch('/vouchers/' + vid)
+    .then(function(res) { return res.json(); })
+    .then(function(res) {
+      if (!res.ok) {
+        alert(res.msg || '查询凭证详情失败');
+        return;
+      }
+      var d = res.data;
+      document.getElementById('voucherEditForm').action = '/vouchers/' + vid;
+      document.getElementById('e_voucher_no').value = d.voucher_no || '';
+      document.getElementById('e_voucher_type').value = d.voucher_type || 'commercial_invoice';
+      document.getElementById('e_title').value = d.title || '';
+      document.getElementById('e_trade_date').value = d.trade_date || '';
+      document.getElementById('e_currency').value = d.currency || 'USD';
+      document.getElementById('e_amount').value = d.amount || 0;
+      document.getElementById('e_contact_id').value = d.contact_id || '';
+      document.getElementById('e_status').value = d.status || 'confirmed';
+      document.getElementById('e_product_desc').value = d.product_desc || '';
+      document.getElementById('e_ocr_raw_text').textContent = d.ocr_raw_text || '（暂无原始 OCR 文本记录）';
+      document.getElementById('editVoucherModal').style.display = 'flex';
+    })
+    .catch(function(err) {
+      alert('请求异常: ' + err);
+    });
+}
+
+function closeEditVoucherModal() {
+  document.getElementById('editVoucherModal').style.display = 'none';
+}
+
+function deleteCurrentVoucher() {
+  if (!currentEditVid) return;
+  if (!confirm('确定要删除本张外贸单证凭证吗？此操作无法撤销。')) return;
+  var form = document.createElement('form');
+  form.method = 'post';
+  form.action = '/vouchers/' + currentEditVid + '/delete';
+  var csrfInput = document.createElement('input');
+  csrfInput.type = 'hidden';
+  csrfInput.name = 'csrf_tok';
+  csrfInput.value = '{{ csrf }}';
+  form.appendChild(csrfInput);
+  document.body.appendChild(form);
+  form.submit();
+}
+
+function toggleSelectAll(master) {
+  var chks = document.querySelectorAll('.voucher-chk');
+  for (var i = 0; i < chks.length; i++) {
+    chks[i].checked = master.checked;
+  }
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  var chks = document.querySelectorAll('.voucher-chk:checked');
+  document.getElementById('selectedCount').textContent = chks.length;
+}
+
+function triggerBatchAction(act) {
+  var count = document.querySelectorAll('.voucher-chk:checked').length;
+  if (count === 0) {
+    alert('请先在表格左侧勾选要操作的单证！');
+    return;
+  }
+  if (act === 'delete') {
+    if (!confirm('确定要批量删除选中的 ' + count + ' 条单证凭证吗？')) return;
+  }
+  document.getElementById('batchActionInput').value = act;
+  document.getElementById('batchForm').submit();
+}
+
+function batchSetStatus(st) {
+  var count = document.querySelectorAll('.voucher-chk:checked').length;
+  if (count === 0) {
+    alert('请先勾选需要修改状态的单据！');
+    return;
+  }
+  document.getElementById('batchActionInput').value = 'status';
+  document.getElementById('batchStatusInput').value = st;
+  document.getElementById('batchForm').submit();
+}
+
+// 本地 OCR 异步识别处理
+function runVoucherOcr() {
+  var fileInput = document.getElementById('ocrFileInput');
+  var tip = document.getElementById('ocrStatusTip');
+  var btn = document.getElementById('ocrStartBtn');
+
+  if (!fileInput.files || fileInput.files.length === 0) {
+    alert('请先点击浏览按钮选择单证扫描件或图片！');
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 正在本地OCR识别...';
+  tip.textContent = '正在调用本地 RapidOCR 引擎进行离线文本分析与外贸实体抽取 (0 Token)...';
+  tip.style.color = 'var(--primary)';
+
+  fetch('/vouchers/ocr', {
+    method: 'POST',
+    body: formData
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(res) {
+    btn.disabled = false;
+    btn.textContent = '⚡ 开始本地识别';
+    if (!res.ok) {
+      tip.textContent = '❌ 识别失败: ' + (res.msg || '未知错误');
+      tip.style.color = 'var(--danger)';
+      return;
+    }
+    var d = res.data;
+    if (d.voucher_no) document.getElementById('f_voucher_no').value = d.voucher_no;
+    if (d.voucher_type) document.getElementById('f_voucher_type').value = d.voucher_type;
+    if (d.title) document.getElementById('f_title').value = d.title;
+    if (d.trade_date) document.getElementById('f_trade_date').value = d.trade_date;
+    if (d.currency) document.getElementById('f_currency').value = d.currency;
+    if (d.amount) document.getElementById('f_amount').value = d.amount;
+    if (d.shipper) document.getElementById('f_shipper').value = d.shipper;
+    if (d.consignee) document.getElementById('f_consignee').value = d.consignee;
+    if (d.product_desc) document.getElementById('f_product_desc').value = d.product_desc;
+
+    document.getElementById('f_ocr_status').value = 'success';
+    document.getElementById('f_ocr_raw_text').value = res.text || '';
+
+    tip.textContent = '✅ 本地识别完成！已自动回填字段（发票号、金额、日期、买卖双方等），请核对后点击保存。';
+    tip.style.color = 'var(--ok)';
+  })
+  .catch(function(err) {
+    btn.disabled = false;
+    btn.textContent = '⚡ 开始本地识别';
+    tip.textContent = '❌ 识别网络异常: ' + err;
+    tip.style.color = 'var(--danger)';
+  });
+}
+
+// 支持粘贴剪贴板图片直接识别
+window.addEventListener('paste', function(e) {
+  var modal = document.getElementById('newVoucherModal');
+  if (modal.style.display !== 'flex') return;
+  var items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].type.indexOf('image') !== -1) {
+      var file = items[i].getAsFile();
+      var dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      document.getElementById('ocrFileInput').files = dataTransfer.files;
+      runVoucherOcr();
+      break;
+    }
+  }
+});
+</script>

@@ -160,7 +160,7 @@ def ai_summary(subject: str, body: str, from_addr: str = "",
         {"role": "system", "content": SUMMARY_SYSTEM},
         {"role": "user", "content": user},
     ]
-    raw = ai_client.chat(messages, max_tokens=2000)
+    raw = ai_client.chat(messages, max_tokens=2000, purpose="summary")
     parsed = ai_client.extract_json(raw) if raw else None
 
     # 后置校验：模型没吐 JSON，或者吐出来的不是中文 → 重试一次并加重语气
@@ -178,7 +178,7 @@ def ai_summary(subject: str, body: str, from_addr: str = "",
                            "且 summary_cn、key_points_cn、intent_cn、"
                            "urgency_cn 必须是简体中文。",
             })
-            raw2 = ai_client.chat(messages, max_tokens=2000)
+            raw2 = ai_client.chat(messages, max_tokens=2000, purpose="summary")
             parsed2 = ai_client.extract_json(raw2) if raw2 else None
             if isinstance(parsed2, dict):
                 parsed = parsed2

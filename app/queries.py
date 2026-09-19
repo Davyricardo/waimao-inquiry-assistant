@@ -5,6 +5,7 @@ import json
 import re
 import time
 import urllib.parse
+from typing import Optional
 
 from . import config, db, geo_time
 
@@ -14,8 +15,38 @@ def _today() -> str:
         time.time() + config.TZ_OFFSET_HOURS * 3600))
 
 
+TARGET_CATEGORIES = ("inquiry", "quote", "after_sale", "after_sales", "complaint")
+TARGET_CATEGORIES_SQL = "('inquiry', 'quote', 'after_sale', 'after_sales', 'complaint')"
+
+
+def pending_review_count() -> int:
+    """待人工审核的目标邮件草稿数。
+    与审核台 /review 列表保持 100% 绝对一致：
+    严格仅统计目标邮件（询盘、报价、售后、投诉），排除垃圾邮件 (spam) 与其他无效邮件 (other)。
+    """
+    with db.ro() as conn:
+        r = conn.execute(
+            f"SELECT COUNT(*) FROM drafts d "
+            f"JOIN messages m ON m.id = d.message_id "
+            f"WHERE d.status='pending' AND m.category IN {TARGET_CATEGORIES_SQL}"
+        ).fetchone()
+        return r[0] if r and r[0] is not None else 0
+
+
+def clean_invalid_pending_drafts() -> int:
+    """清理关联邮件为垃圾邮件或无效分类的历史残留 pending 草稿。"""
+    with db.tx() as conn:
+        cursor = conn.execute(
+            f"UPDATE drafts SET status='cancelled' "
+            f"WHERE status='pending' AND message_id IN ("
+            f"  SELECT id FROM messages WHERE category NOT IN {TARGET_CATEGORIES_SQL} OR category IS NULL"
+            f")"
+        )
+        return cursor.rowcount
+
+
 def dashboard() -> dict:
-    """看板顶部指标卡。"""
+    """看板顶部指标卡。统计口径严格以有效目标邮件为准。"""
     offset = config.TZ_OFFSET_HOURS * 3600
     today = _today()
     yesterday = time.strftime("%Y-%m-%d", time.gmtime(
@@ -25,26 +56,46 @@ def dashboard() -> dict:
             r = conn.execute(sql, args).fetchone()
             return (r[0] if r and r[0] is not None else 0)
 
-        today_in = one("SELECT COUNT(*) FROM messages WHERE direction='in' "
-                       "AND date(sent_ts+?,'unixepoch')=?", (offset, today))
-        yday_in = one("SELECT COUNT(*) FROM messages WHERE direction='in' "
-                      "AND date(sent_ts+?,'unixepoch')=?", (offset, yesterday))
-        high = one("SELECT COUNT(*) FROM messages WHERE direction='in' AND score>=? "
-                   "AND date(sent_ts+?,'unixepoch')=?",
+        # 1. 今日有效目标询盘（剔除垃圾邮件与其他）
+        today_in = one(f"SELECT COUNT(*) FROM messages WHERE direction='in' "
+                       f"AND (category IN {TARGET_CATEGORIES_SQL} OR (category IS NULL AND status='new')) "
+                       f"AND date(sent_ts+?,'unixepoch')=?", (offset, today))
+        yday_in = one(f"SELECT COUNT(*) FROM messages WHERE direction='in' "
+                      f"AND (category IN {TARGET_CATEGORIES_SQL} OR (category IS NULL AND status='new')) "
+                      f"AND date(sent_ts+?,'unixepoch')=?", (offset, yesterday))
+
+        # 2. 高意向询盘：必须为目标分类且意向分达到阈值
+        high = one(f"SELECT COUNT(*) FROM messages WHERE direction='in' AND score>=? "
+                   f"AND category IN {TARGET_CATEGORIES_SQL} "
+                   f"AND date(sent_ts+?,'unixepoch')=?",
                    (config.HIGH_INTENT, offset, today))
-        pending = one("SELECT COUNT(*) FROM drafts WHERE status='pending'")
+
+        # 3. 待人工审核：严格与审核台 /review 列表逻辑完全一致
+        pending = one(f"SELECT COUNT(*) FROM drafts d "
+                      f"JOIN messages m ON m.id = d.message_id "
+                      f"WHERE d.status='pending' AND m.category IN {TARGET_CATEGORIES_SQL}")
+
+        # 4. 今日对外发信
         sent_today = one("SELECT COUNT(*) FROM messages WHERE direction='out' "
                          "AND date(sent_ts+?,'unixepoch')=?", (offset, today))
         auto_today = one("SELECT COUNT(*) FROM messages WHERE direction='out' "
                          "AND status='auto_sent' "
                          "AND date(sent_ts+?,'unixepoch')=?", (offset, today))
-        total_contacts = one("SELECT COUNT(*) FROM contacts")
-        unread = one("SELECT COUNT(*) FROM messages WHERE direction='in' "
-                     "AND is_read=0")
+
+        # 5. 累计客户：仅统计高意向客户 (score >= 70) 以及跟进中/已成交客户，剔除垃圾与流失
+        total_contacts = one(
+            "SELECT COUNT(*) FROM contacts WHERE stage NOT IN ('spam', 'lost') "
+            "AND (score >= ? OR stage IN ('engaging', 'quoted', 'negotiating', 'won') OR reply_count > 0)",
+            (config.HIGH_INTENT,)
+        )
+
+        # 6. 未读有效邮件：剔除垃圾邮件和其他
+        unread = one(f"SELECT COUNT(*) FROM messages WHERE direction='in' "
+                     f"AND is_read=0 AND category IN {TARGET_CATEGORIES_SQL}")
+
         acct = conn.execute(
             "SELECT email,last_sync_ts,last_error,is_active FROM accounts "
             "WHERE is_active=1 ORDER BY id LIMIT 1").fetchone()
-        # 存在账户记录但全部未启用 —— 典型情况是只灌了演示数据
         any_acct = conn.execute("SELECT COUNT(*) c FROM accounts").fetchone()["c"]
 
     delta = None
@@ -62,7 +113,7 @@ def dashboard() -> dict:
 
 
 def trend(days: int = 7) -> dict:
-    """近 N 日趋势。优先读快照表，缺失的日期补空。"""
+    """近 N 日趋势。仅统计有效目标邮件，剔除垃圾与其他数据。"""
     offset = config.TZ_OFFSET_HOURS * 3600
     labels, ins, highs, autos = [], [], [], []
     with db.ro() as conn:
@@ -78,12 +129,14 @@ def trend(days: int = 7) -> dict:
                 autos.append(r["auto_count"])
             else:
                 ins.append(conn.execute(
-                    "SELECT COUNT(*) c FROM messages WHERE direction='in' "
-                    "AND date(sent_ts+?,'unixepoch')=?",
+                    f"SELECT COUNT(*) c FROM messages WHERE direction='in' "
+                    f"AND (category IN {TARGET_CATEGORIES_SQL} OR (category IS NULL AND status='new')) "
+                    f"AND date(sent_ts+?,'unixepoch')=?",
                     (offset, d)).fetchone()["c"])
                 highs.append(conn.execute(
-                    "SELECT COUNT(*) c FROM messages WHERE direction='in' "
-                    "AND score>=? AND date(sent_ts+?,'unixepoch')=?",
+                    f"SELECT COUNT(*) c FROM messages WHERE direction='in' "
+                    f"AND score>=? AND category IN {TARGET_CATEGORIES_SQL} "
+                    f"AND date(sent_ts+?,'unixepoch')=?",
                     (config.HIGH_INTENT, offset, d)).fetchone()["c"])
                 autos.append(0)
     return {"labels": labels, "in_count": ins, "high_intent": highs,
@@ -91,24 +144,39 @@ def trend(days: int = 7) -> dict:
 
 
 def category_breakdown(days: int = 30) -> list:
-    offset = config.TZ_OFFSET_HOURS * 3600
+    """近 30 日目标邮件分类分布。严格排除 spam 垃圾邮件与 other 其他无效邮件。"""
     since = int(time.time()) - days * 86400
+    category_labels = {
+        "inquiry": "询盘问价",
+        "quote": "索要报价",
+        "after_sale": "售后支持",
+        "after_sales": "售后支持",
+        "complaint": "客户投诉",
+    }
     with db.ro() as conn:
         rows = conn.execute(
-            "SELECT COALESCE(category,'other') cat, COUNT(*) c, "
-            "ROUND(AVG(score)) avg_score FROM messages WHERE direction='in' "
-            "AND sent_ts>=? GROUP BY cat ORDER BY c DESC", (since,)).fetchall()
-    return [dict(r) for r in rows]
+            f"SELECT category cat, COUNT(*) c, "
+            f"ROUND(AVG(score)) avg_score FROM messages WHERE direction='in' "
+            f"AND category IN {TARGET_CATEGORIES_SQL} "
+            f"AND sent_ts>=? GROUP BY category ORDER BY c DESC", (since,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["cat_cn"] = category_labels.get(d["cat"], d["cat"])
+        out.append(d)
+    return out
 
 
 def top_leads(limit: int = 8) -> list:
+    """高意向询盘列表。仅展示属于目标分类（询盘/报价/售后/投诉）的有效客户邮件。"""
     with db.ro() as conn:
         rows = conn.execute(
-            "SELECT m.id,m.subject,m.score,m.category,m.sent_ts,m.status,"
-            "m.ai_summary,c.id contact_id,c.email,c.name,c.company,c.country,"
-            "c.stage FROM messages m JOIN contacts c ON c.id=m.contact_id "
-            "WHERE m.direction='in' AND m.score IS NOT NULL "
-            "ORDER BY m.score DESC, m.sent_ts DESC LIMIT ?", (limit,)).fetchall()
+            f"SELECT m.id,m.subject,m.score,m.category,m.sent_ts,m.status,"
+            f"m.ai_summary,c.id contact_id,c.email,c.name,c.company,c.country,"
+            f"c.stage FROM messages m JOIN contacts c ON c.id=m.contact_id "
+            f"WHERE m.direction='in' AND m.score IS NOT NULL "
+            f"AND m.category IN {TARGET_CATEGORIES_SQL} "
+            f"ORDER BY m.score DESC, m.sent_ts DESC LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -120,8 +188,18 @@ def list_messages(page: int = 1, size: int = 20, category: str = "",
         where.append("m.direction=?")
         args.append(direction)
     if category:
-        where.append("m.category=?")
-        args.append(category)
+        if category in ("all", "any"):
+            pass  # 查看全量（包含垃圾邮件）
+        elif category in ("valid", ""):
+            where.append("(m.category != 'spam' OR m.category IS NULL)")
+        elif category in ("after_sale", "after_sales"):
+            where.append("m.category IN ('after_sale', 'after_sales')")
+        else:
+            where.append("m.category=?")
+            args.append(category)
+    else:
+        # 默认不选分类或空分类时，自动排除垃圾邮件，优先保证外贸有效询盘体验
+        where.append("(m.category != 'spam' OR m.category IS NULL)")
     if min_score is not None:
         where.append("m.score>=?")
         args.append(min_score)
@@ -144,9 +222,10 @@ def list_messages(page: int = 1, size: int = 20, category: str = "",
             f"LEFT JOIN threads t ON t.id=m.thread_id "
             f"WHERE {wsql} ORDER BY m.sent_ts DESC LIMIT ? OFFSET ?",
             args + [size, (page - 1) * size]).fetchall()
+    pages = max(1, (total + size - 1) // size)
     return {"items": [dict(r) for r in rows], "total": total,
-            "page": page, "size": size,
-            "pages": max(1, (total + size - 1) // size)}
+            "page": page, "size": size, "pages": pages,
+            "prev_page": max(1, page - 1), "next_page": min(pages, page + 1)}
 
 
 def get_message(mid: int) -> dict | None:
@@ -199,6 +278,9 @@ def list_contacts(page: int = 1, size: int = 20, q: str = "",
     if stage:
         where.append("stage=?")
         args.append(stage)
+    else:
+        # 默认不选阶段时，自动过滤掉垃圾客户与无效数据污染，保障客户池纯净
+        where.append("stage NOT IN ('spam', 'invalid')")
     if min_score is not None:
         where.append("score>=?")
         args.append(min_score)
@@ -215,8 +297,39 @@ def list_contacts(page: int = 1, size: int = 20, q: str = "",
         item = dict(r)
         item["local_time"] = geo_time.get_contact_time_info(item, base_tz_offset=config.TZ_OFFSET_HOURS)
         items.append(item)
+    pages = max(1, (total + size - 1) // size)
     return {"items": items, "total": total, "page": page,
-            "size": size, "pages": max(1, (total + size - 1) // size)}
+            "size": size, "pages": pages,
+            "prev_page": max(1, page - 1), "next_page": min(pages, page + 1)}
+
+
+def clean_spam_contacts() -> int:
+    """清理垃圾邮件与无效数据污染的客户档案。
+    如果一个客户名下的所有邮件均为垃圾邮件 (spam)，则将其 stage 自动更新为 'spam'；
+    如果一个客户名下的邮件全为 'other' 且最高分低于 30 且没有任何我方回信记录，则将其 stage 标记为 'invalid'。
+    """
+    with db.tx() as conn:
+        # 1. 所有来信均为 spam 的客户
+        c1 = conn.execute(
+            """UPDATE contacts SET stage='spam'
+               WHERE stage NOT IN ('spam', 'lost', 'won') AND id IN (
+                   SELECT contact_id FROM messages
+                   WHERE contact_id IS NOT NULL
+                   GROUP BY contact_id
+                   HAVING COUNT(*) > 0 AND SUM(CASE WHEN category = 'spam' THEN 1 ELSE 0 END) = COUNT(*)
+               )"""
+        ).rowcount
+        # 2. 所有来信均为 other、意向分极低 (<30) 且无客户回信的无效客户
+        c2 = conn.execute(
+            """UPDATE contacts SET stage='invalid'
+               WHERE stage NOT IN ('spam', 'invalid', 'won') AND score < 30 AND reply_count = 0 AND id IN (
+                   SELECT contact_id FROM messages
+                   WHERE contact_id IS NOT NULL
+                   GROUP BY contact_id
+                   HAVING COUNT(*) > 0 AND SUM(CASE WHEN category = 'other' THEN 1 ELSE 0 END) = COUNT(*)
+               )"""
+        ).rowcount
+        return c1 + c2
 
 
 def get_contact(cid: int) -> dict | None:
@@ -405,12 +518,14 @@ def export_contacts_csv() -> str:
 def pending_drafts(limit: int = 50) -> list:
     with db.ro() as conn:
         rows = conn.execute(
-            "SELECT d.*, m.subject in_subject, m.from_addr, m.body_text in_body, "
-            "m.sent_ts in_ts, m.score, m.category, c.name contact_name, "
-            "c.company FROM drafts d JOIN messages m ON m.id=d.message_id "
-            "LEFT JOIN contacts c ON c.id=d.contact_id "
-            "WHERE d.status='pending' ORDER BY m.score DESC, d.created_ts DESC "
-            "LIMIT ?", (limit,)).fetchall()
+            f"SELECT d.*, m.subject in_subject, m.from_addr, m.body_text in_body, "
+            f"m.sent_ts in_ts, m.score, m.category, m.summary_cn, m.key_points_cn, "
+            f"c.name contact_name, c.company FROM drafts d "
+            f"JOIN messages m ON m.id=d.message_id "
+            f"LEFT JOIN contacts c ON c.id=d.contact_id "
+            f"WHERE d.status='pending' AND m.category IN {TARGET_CATEGORIES_SQL} "
+            f"ORDER BY m.score DESC, d.created_ts DESC "
+            f"LIMIT ?", (limit,)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -2747,5 +2862,733 @@ def export_social_leads_csv(leads: list[dict]) -> str:
     return buf.getvalue()
 
 
+# ==============================================================================
+# 外贸单证与凭证管理查询 (Vouchers)
+# ==============================================================================
 
+VOUCHER_TYPE_NAMES = {
+    "commercial_invoice": "商业发票 (CI)",
+    "proforma_invoice": "形式发票 (PI)",
+    "packing_list": "装箱单 (PL)",
+    "bill_of_lading": "海运提单 (B/L)",
+    "customs_declaration": "报关单",
+    "bank_slip": "付汇/结汇水单",
+    "contract": "外贸合同",
+    "other": "其他凭证",
+}
+
+VOUCHER_STATUS_NAMES = {
+    "confirmed": "已确认",
+    "pending": "待核对",
+    "archived": "已归档",
+}
+
+
+def create_voucher(data: dict) -> int:
+    """创建外贸单证/凭证记录。"""
+    now = db.now_ts()
+    with db.tx() as conn:
+        cur = conn.execute(
+            """INSERT INTO vouchers (
+                voucher_no, voucher_type, title, trade_date, currency, amount,
+                contact_id, order_id, shipper, consignee, product_desc,
+                file_path, ocr_status, ocr_raw_text, status, notes,
+                created_ts, updated_ts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data.get("voucher_no", "").strip(),
+                data.get("voucher_type", "commercial_invoice").strip(),
+                data.get("title", "").strip() or None,
+                data.get("trade_date", "").strip() or None,
+                data.get("currency", "USD").strip().upper(),
+                float(data.get("amount", 0.0) or 0.0),
+                data.get("contact_id") or None,
+                data.get("order_id") or None,
+                data.get("shipper", "").strip() or None,
+                data.get("consignee", "").strip() or None,
+                data.get("product_desc", "").strip() or None,
+                data.get("file_path", "").strip() or None,
+                data.get("ocr_status", "pending").strip(),
+                data.get("ocr_raw_text", "") or None,
+                data.get("status", "confirmed").strip(),
+                data.get("notes", "").strip() or None,
+                now, now
+            )
+        )
+        vid = cur.lastrowid
+    return vid
+
+
+def update_voucher(vid: int, data: dict) -> bool:
+    """更新外贸凭证信息。"""
+    now = db.now_ts()
+    with db.tx() as conn:
+        res = conn.execute(
+            """UPDATE vouchers SET
+                voucher_no = COALESCE(?, voucher_no),
+                voucher_type = COALESCE(?, voucher_type),
+                title = COALESCE(?, title),
+                trade_date = COALESCE(?, trade_date),
+                currency = COALESCE(?, currency),
+                amount = COALESCE(?, amount),
+                contact_id = ?,
+                order_id = ?,
+                shipper = COALESCE(?, shipper),
+                consignee = COALESCE(?, consignee),
+                product_desc = COALESCE(?, product_desc),
+                file_path = COALESCE(?, file_path),
+                ocr_status = COALESCE(?, ocr_status),
+                ocr_raw_text = COALESCE(?, ocr_raw_text),
+                status = COALESCE(?, status),
+                notes = COALESCE(?, notes),
+                updated_ts = ?
+            WHERE id = ?""",
+            (
+                data.get("voucher_no"),
+                data.get("voucher_type"),
+                data.get("title"),
+                data.get("trade_date"),
+                data.get("currency"),
+                float(data["amount"]) if "amount" in data and data["amount"] is not None else None,
+                data.get("contact_id") if "contact_id" in data else None,
+                data.get("order_id") if "order_id" in data else None,
+                data.get("shipper"),
+                data.get("consignee"),
+                data.get("product_desc"),
+                data.get("file_path"),
+                data.get("ocr_status"),
+                data.get("ocr_raw_text"),
+                data.get("status"),
+                data.get("notes"),
+                now, vid
+            )
+        )
+        return res.rowcount > 0
+
+
+def delete_voucher(vid: int) -> bool:
+    """删除单张凭证。"""
+    with db.tx() as conn:
+        res = conn.execute("DELETE FROM vouchers WHERE id = ?", (vid,))
+        return res.rowcount > 0
+
+
+def batch_delete_vouchers(vids: list[int]) -> int:
+    """批量删除凭证。"""
+    if not vids:
+        return 0
+    placeholders = ",".join("?" for _ in vids)
+    with db.tx() as conn:
+        res = conn.execute(f"DELETE FROM vouchers WHERE id IN ({placeholders})", vids)
+        return res.rowcount
+
+
+def batch_update_voucher_status(vids: list[int], status: str) -> int:
+    """批量更新凭证状态（confirmed / pending / archived）。"""
+    if not vids:
+        return 0
+    now = db.now_ts()
+    placeholders = ",".join("?" for _ in vids)
+    params = [status, now] + list(vids)
+    with db.tx() as conn:
+        res = conn.execute(
+            f"UPDATE vouchers SET status = ?, updated_ts = ? WHERE id IN ({placeholders})",
+            params
+        )
+        return res.rowcount
+
+
+def get_voucher(vid: int) -> Optional[dict]:
+    """查询单张凭证详情及关联客户/订单。"""
+    with db.ro() as conn:
+        row = conn.execute(
+            """SELECT v.*, c.name AS contact_name, c.company AS contact_company,
+                      o.order_no AS order_no_rel, o.title AS order_title
+               FROM vouchers v
+               LEFT JOIN contacts c ON c.id = v.contact_id
+               LEFT JOIN orders o ON o.id = v.order_id
+               WHERE v.id = ?""",
+            (vid,)
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["voucher_type_cn"] = VOUCHER_TYPE_NAMES.get(d["voucher_type"], d["voucher_type"])
+        d["status_cn"] = VOUCHER_STATUS_NAMES.get(d["status"], d["status"])
+        return d
+
+
+def list_vouchers(
+    q: str = "",
+    voucher_type: str = "",
+    status: str = "",
+    contact_id: Optional[int] = None,
+    order_id: Optional[int] = None,
+    page: int = 1,
+    page_size: int = 20
+) -> dict:
+    """多维分页检索外贸凭证列表。"""
+    where_clauses = ["1=1"]
+    params: list = []
+
+    if q:
+        like_q = f"%{q.strip()}%"
+        where_clauses.append(
+            "(v.voucher_no LIKE ? OR v.title LIKE ? OR v.shipper LIKE ? OR v.consignee LIKE ? OR v.product_desc LIKE ? OR c.name LIKE ? OR c.company LIKE ?)"
+        )
+        params.extend([like_q, like_q, like_q, like_q, like_q, like_q, like_q])
+
+    if voucher_type:
+        where_clauses.append("v.voucher_type = ?")
+        params.append(voucher_type.strip())
+
+    if status:
+        where_clauses.append("v.status = ?")
+        params.append(status.strip())
+
+    if contact_id:
+        where_clauses.append("v.contact_id = ?")
+        params.append(contact_id)
+
+    if order_id:
+        where_clauses.append("v.order_id = ?")
+        params.append(order_id)
+
+    where_sql = " AND ".join(where_clauses)
+    offset = (page - 1) * page_size
+
+    with db.ro() as conn:
+        total = conn.execute(
+            f"""SELECT COUNT(*) FROM vouchers v
+                LEFT JOIN contacts c ON c.id = v.contact_id
+                WHERE {where_sql}""",
+            params
+        ).fetchone()[0]
+
+        rows = conn.execute(
+            f"""SELECT v.*, c.name AS contact_name, c.company AS contact_company,
+                       o.order_no AS order_no_rel
+                FROM vouchers v
+                LEFT JOIN contacts c ON c.id = v.contact_id
+                LEFT JOIN orders o ON o.id = v.order_id
+                WHERE {where_sql}
+                ORDER BY v.trade_date DESC, v.created_ts DESC
+                LIMIT ? OFFSET ?""",
+            params + [page_size, offset]
+        ).fetchall()
+
+    items = []
+    for r in rows:
+        d = dict(r)
+        d["voucher_type_cn"] = VOUCHER_TYPE_NAMES.get(d["voucher_type"], d["voucher_type"])
+        d["status_cn"] = VOUCHER_STATUS_NAMES.get(d["status"], d["status"])
+        items.append(d)
+
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+    }
+
+
+def voucher_stats() -> dict:
+    """获取凭证仪表盘关键统计指标。"""
+    with db.ro() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM vouchers").fetchone()[0]
+        confirmed = conn.execute("SELECT COUNT(*) FROM vouchers WHERE status='confirmed'").fetchone()[0]
+        pending = conn.execute("SELECT COUNT(*) FROM vouchers WHERE status='pending'").fetchone()[0]
+        archived = conn.execute("SELECT COUNT(*) FROM vouchers WHERE status='archived'").fetchone()[0]
+        ocr_done = conn.execute("SELECT COUNT(*) FROM vouchers WHERE ocr_status='success'").fetchone()[0]
+
+        # 按币种汇总总金额
+        amounts = {}
+        for r in conn.execute("SELECT currency, SUM(amount) FROM vouchers WHERE status!='archived' GROUP BY currency").fetchall():
+            amounts[r[0]] = round(r[1] or 0.0, 2)
+
+    return {
+        "total": total,
+        "confirmed": confirmed,
+        "pending": pending,
+        "archived": archived,
+        "ocr_done": ocr_done,
+        "amounts": amounts,
+    }
+
+
+def export_vouchers_csv(items: list[dict]) -> str:
+    """导出凭证列表为 UTF-8 BOM CSV。"""
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = csv.writer(buf)
+    writer.writerow([
+        "序号", "单证编号", "单证类型", "标题/简述", "业务日期", "币种", "金额",
+        "关联客户", "关联订单", "发货人/卖方", "收货人/买方", "品名货品描述",
+        "OCR识别状态", "单据状态", "备注"
+    ])
+    for idx, v in enumerate(items, 1):
+        writer.writerow([
+            idx,
+            v.get("voucher_no", ""),
+            v.get("voucher_type_cn", v.get("voucher_type", "")),
+            v.get("title", ""),
+            v.get("trade_date", ""),
+            v.get("currency", "USD"),
+            f"{v.get('amount', 0.0):.2f}",
+            v.get("contact_name") or (f"ID:{v['contact_id']}" if v.get("contact_id") else ""),
+            v.get("order_no_rel") or (f"ID:{v['order_id']}" if v.get("order_id") else ""),
+            v.get("shipper", ""),
+            v.get("consignee", ""),
+            v.get("product_desc", ""),
+            v.get("ocr_status", ""),
+            v.get("status_cn", v.get("status", "")),
+            v.get("notes", ""),
+        ])
+    return buf.getvalue()
+
+
+# ============================================================
+# 日志模块：每日工作检阅、Token测算、24H邮件时点分析
+# ============================================================
+
+def get_daily_work_stats(day_str: str = "") -> dict:
+    """获取指定日期的每日工作进度与动作统计。
+    
+    默认当天 (基于 config.TZ_OFFSET_HOURS，如 YYYY-MM-DD)。
+    统计指标：
+    - 邮件外发数 (已发送/自动发送/人工审核)
+    - 审批通过/起草的回复草稿数
+    - 新增或跟进客户数
+    - 录入或OCR识别单证数
+    - 社媒触达与线索记录数
+    - 审计操作总流水数与动作分布
+    - 当日 AI 模型调用次数与 Token 消耗
+    - 自动生成的下班工作复盘日报（Markdown / 纯文本，方便一键复制）
+    """
+    offset = config.TZ_OFFSET_HOURS * 3600
+    target_day = (day_str or "").strip() or _today()
+
+    with db.ro() as conn:
+        def one(sql, args=()):
+            r = conn.execute(sql, args).fetchone()
+            return r[0] if r and r[0] is not None else 0
+
+        # 1. 邮件外发数
+        sent_emails = one(
+            "SELECT COUNT(*) FROM messages WHERE direction='out' "
+            "AND date(sent_ts+?,'unixepoch')=?", (offset, target_day)
+        )
+        auto_sent = one(
+            "SELECT COUNT(*) FROM messages WHERE direction='out' AND status='auto_sent' "
+            "AND date(sent_ts+?,'unixepoch')=?", (offset, target_day)
+        )
+        received_emails = one(
+            "SELECT COUNT(*) FROM messages WHERE direction='in' "
+            "AND date(sent_ts+?,'unixepoch')=?", (offset, target_day)
+        )
+        high_inquiries = one(
+            "SELECT COUNT(*) FROM messages WHERE direction='in' AND score>=? "
+            "AND date(sent_ts+?,'unixepoch')=?", (config.HIGH_INTENT, offset, target_day)
+        )
+
+        # 2. 草稿处理情况
+        drafts_approved = one(
+            "SELECT COUNT(*) FROM drafts WHERE status IN ('approved', 'sent') "
+            "AND (date(reviewed_ts+?,'unixepoch')=? OR date(sent_ts+?,'unixepoch')=?)",
+            (offset, target_day, offset, target_day)
+        )
+        drafts_pending = one("SELECT COUNT(*) FROM drafts WHERE status='pending'")
+
+        # 3. 客户跟进与新增
+        new_contacts = one(
+            "SELECT COUNT(*) FROM contacts WHERE date(first_seen_ts+?,'unixepoch')=?",
+            (offset, target_day)
+        )
+        followup_actions = one(
+            "SELECT COUNT(*) FROM audit_log WHERE target_type='contact' "
+            "AND date(ts+?,'unixepoch')=?", (offset, target_day)
+        )
+
+        # 4. 单证录入与 OCR 识别
+        new_vouchers = one(
+            "SELECT COUNT(*) FROM vouchers WHERE date(created_ts+?,'unixepoch')=?",
+            (offset, target_day)
+        )
+        ocr_vouchers = one(
+            "SELECT COUNT(*) FROM vouchers WHERE ocr_status='success' "
+            "AND date(created_ts+?,'unixepoch')=?", (offset, target_day)
+        )
+
+        # 5. 社媒触达与线索
+        social_outreach = one(
+            "SELECT COUNT(*) FROM audit_log WHERE (target_type='social_lead' OR action LIKE '%social%') "
+            "AND date(ts+?,'unixepoch')=?", (offset, target_day)
+        )
+
+        # 6. 操作流水总数及主要动作分布
+        total_actions = one(
+            "SELECT COUNT(*) FROM audit_log WHERE date(ts+?,'unixepoch')=?",
+            (offset, target_day)
+        )
+        action_breakdown_rows = conn.execute(
+            "SELECT action, COUNT(*) as cnt FROM audit_log "
+            "WHERE date(ts+?,'unixepoch')=? GROUP BY action ORDER BY cnt DESC LIMIT 8",
+            (offset, target_day)
+        ).fetchall()
+        action_breakdown = [{"action": r["action"], "count": r["cnt"]} for r in action_breakdown_rows]
+
+        # 7. AI 模型调用与 Token 测算
+        ai_stat = conn.execute(
+            "SELECT COUNT(*) as calls, "
+            "COALESCE(SUM(total_tokens), 0) as total_tokens, "
+            "COALESCE(SUM(prompt_tokens), 0) as prompt_tokens, "
+            "COALESCE(SUM(completion_tokens), 0) as completion_tokens, "
+            "COALESCE(SUM(cost_usd), 0.0) as cost_usd, "
+            "COALESCE(SUM(cost_rmb), 0.0) as cost_rmb "
+            "FROM ai_logs WHERE date(ts+?,'unixepoch')=?",
+            (offset, target_day)
+        ).fetchone()
+
+        ai_calls = ai_stat["calls"] if ai_stat else 0
+        ai_tokens = ai_stat["total_tokens"] if ai_stat else 0
+        ai_prompt_tokens = ai_stat["prompt_tokens"] if ai_stat else 0
+        ai_completion_tokens = ai_stat["completion_tokens"] if ai_stat else 0
+        ai_cost_usd = round(ai_stat["cost_usd"] if ai_stat else 0.0, 4)
+        ai_cost_rmb = round(ai_stat["cost_rmb"] if ai_stat else 0.0, 4)
+
+        # 8. 最近的关键工作记录（用于复盘）
+        recent_logs = conn.execute(
+            "SELECT ts, actor, action, target_type, target_id, detail "
+            "FROM audit_log WHERE date(ts+?,'unixepoch')=? "
+            "ORDER BY ts DESC LIMIT 15",
+            (offset, target_day)
+        ).fetchall()
+        recent_log_list = [dict(r) for r in recent_logs]
+
+    # 生成规范化下班工作汇报文本 (Markdown)
+    report_lines = [
+        f"📅 【外贸业务工作日报 · {target_day}】",
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"✉️ 一、邮件与询盘处理",
+        f"  • 收到买家来信：{received_emails} 封（其中高意向询盘 {high_inquiries} 封）",
+        f"  • 邮件对外发出：{sent_emails} 封（系统自动发送 {auto_sent} 封，人工审批发信 {drafts_approved} 封）",
+        f"  • 当前待审草稿：{drafts_pending} 封",
+        f"",
+        f"👥 二、客户跟进与拓展",
+        f"  • 今日新增客户：{new_contacts} 位",
+        f"  • 客户互动跟进：{followup_actions} 次",
+        f"  • 社媒开发触达：{social_outreach} 条",
+        f"",
+        f"📑 三、外贸单证与业务管理",
+        f"  • 新建/处理单证：{new_vouchers} 份（本地智能 OCR 识别 {ocr_vouchers} 份）",
+        f"  • 业务审计总操作：{total_actions} 次",
+        f"",
+        f"🤖 四、AI 提效与 Token 成本",
+        f"  • AI 调用次数：{ai_calls} 次",
+        f"  • 消耗 Token 总计：{ai_tokens:,}（输入 {ai_prompt_tokens:,} / 输出 {ai_completion_tokens:,}）",
+        f"  • 当日折合费用：${ai_cost_usd:.4f} USD（约 ¥{ai_cost_rmb:.2f} 元）",
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"💡 下班小结：今日工作已全面归档，各项跟进无遗漏。",
+    ]
+    daily_report_text = "\n".join(report_lines)
+
+    return {
+        "day": target_day,
+        "received_emails": received_emails,
+        "high_inquiries": high_inquiries,
+        "sent_emails": sent_emails,
+        "auto_sent": auto_sent,
+        "drafts_approved": drafts_approved,
+        "drafts_pending": drafts_pending,
+        "new_contacts": new_contacts,
+        "followup_actions": followup_actions,
+        "new_vouchers": new_vouchers,
+        "ocr_vouchers": ocr_vouchers,
+        "social_outreach": social_outreach,
+        "total_actions": total_actions,
+        "action_breakdown": action_breakdown,
+        "ai_calls": ai_calls,
+        "ai_tokens": ai_tokens,
+        "ai_prompt_tokens": ai_prompt_tokens,
+        "ai_completion_tokens": ai_completion_tokens,
+        "ai_cost_usd": ai_cost_usd,
+        "ai_cost_rmb": ai_cost_rmb,
+        "recent_logs": recent_log_list,
+        "daily_report_text": daily_report_text,
+    }
+
+
+def list_audit_logs(page: int = 1, size: int = 30, day_str: str = "", action_type: str = "") -> dict:
+    """分页查询业务操作审计流水。"""
+    page = max(1, page)
+    size = max(10, min(100, size))
+    offset_page = (page - 1) * size
+    tz_offset = config.TZ_OFFSET_HOURS * 3600
+
+    where = ["1=1"]
+    args = []
+    if day_str:
+        where.append("date(ts+?,'unixepoch')=?")
+        args.extend([tz_offset, day_str.strip()])
+    if action_type:
+        where.append("action LIKE ?")
+        args.append(f"%{action_type.strip()}%")
+
+    where_sql = " AND ".join(where)
+    with db.ro() as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM audit_log WHERE {where_sql}", args).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT id, ts, actor, action, target_type, target_id, detail "
+            f"FROM audit_log WHERE {where_sql} ORDER BY ts DESC LIMIT ? OFFSET ?",
+            args + [size, offset_page]
+        ).fetchall()
+        items = [dict(r) for r in rows]
+
+    total_pages = max(1, (total + size - 1) // size)
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "size": size,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+    }
+
+
+def get_ai_usage_summary(days: int = 30) -> dict:
+    """获取大模型 Token 消耗与计费测算汇总。"""
+    tz_offset = config.TZ_OFFSET_HOURS * 3600
+    with db.ro() as conn:
+        # 1. 累计总体情况
+        total_row = conn.execute(
+            "SELECT COUNT(*) as calls, "
+            "COALESCE(SUM(total_tokens), 0) as total_tokens, "
+            "COALESCE(SUM(prompt_tokens), 0) as prompt_tokens, "
+            "COALESCE(SUM(completion_tokens), 0) as completion_tokens, "
+            "COALESCE(SUM(cost_usd), 0.0) as cost_usd, "
+            "COALESCE(SUM(cost_rmb), 0.0) as cost_rmb, "
+            "COALESCE(AVG(latency_ms), 0) as avg_latency, "
+            "COALESCE(SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END), 0) as ok_calls "
+            "FROM ai_logs"
+        ).fetchone()
+
+        calls = total_row["calls"] or 0
+        total_tokens = total_row["total_tokens"] or 0
+        prompt_tokens = total_row["prompt_tokens"] or 0
+        completion_tokens = total_row["completion_tokens"] or 0
+        cost_usd = round(total_row["cost_usd"] or 0.0, 4)
+        cost_rmb = round(total_row["cost_rmb"] or 0.0, 4)
+        avg_latency = round(total_row["avg_latency"] or 0)
+        ok_calls = total_row["ok_calls"] or 0
+        success_rate = round(ok_calls / calls * 100, 1) if calls > 0 else 100.0
+
+        # 2. 按用途分布 (purpose)
+        purpose_rows = conn.execute(
+            "SELECT purpose, COUNT(*) as calls, "
+            "COALESCE(SUM(total_tokens), 0) as tokens, "
+            "COALESCE(SUM(cost_rmb), 0.0) as cost_rmb "
+            "FROM ai_logs GROUP BY purpose ORDER BY tokens DESC"
+        ).fetchall()
+
+        purpose_names = {
+            "analysis": "询盘意向分类与打分",
+            "summary": "邮件中文智能摘要",
+            "draft": "业务回复起草",
+            "profile": "买家深度背调画像",
+            "test": "API连通性测试",
+            "general": "通用调用",
+        }
+        purposes = []
+        for r in purpose_rows:
+            p = r["purpose"]
+            tok = r["tokens"]
+            pct = round(tok / total_tokens * 100, 1) if total_tokens > 0 else 0
+            purposes.append({
+                "purpose": p,
+                "label": purpose_names.get(p, p),
+                "calls": r["calls"],
+                "tokens": tok,
+                "cost_rmb": round(r["cost_rmb"] or 0.0, 4),
+                "pct": pct,
+            })
+
+        # 3. 日度趋势 (过去指定天数，默认 14 或 30 天)
+        trend_rows = conn.execute(
+            "SELECT date(ts+?,'unixepoch') as day, "
+            "COUNT(*) as calls, "
+            "COALESCE(SUM(total_tokens), 0) as tokens, "
+            "COALESCE(SUM(cost_rmb), 0.0) as cost_rmb "
+            "FROM ai_logs WHERE ts >= ? "
+            "GROUP BY day ORDER BY day ASC",
+            (tz_offset, db.now_ts() - days * 86400)
+        ).fetchall()
+        daily_trends = [
+            {
+                "day": r["day"],
+                "calls": r["calls"],
+                "tokens": r["tokens"],
+                "cost_rmb": round(r["cost_rmb"] or 0.0, 4),
+            }
+            for r in trend_rows
+        ]
+
+    return {
+        "calls": calls,
+        "total_tokens": total_tokens,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cost_usd": cost_usd,
+        "cost_rmb": cost_rmb,
+        "avg_latency": avg_latency,
+        "success_rate": success_rate,
+        "purposes": purposes,
+        "daily_trends": daily_trends,
+    }
+
+
+def list_ai_logs(page: int = 1, size: int = 30, purpose: str = "", status: str = "") -> dict:
+    """分页查询大模型调用与 Token 流水。"""
+    page = max(1, page)
+    size = max(10, min(100, size))
+    offset_page = (page - 1) * size
+
+    where = ["1=1"]
+    args = []
+    if purpose:
+        where.append("purpose=?")
+        args.append(purpose.strip())
+    if status:
+        where.append("status=?")
+        args.append(status.strip())
+
+    where_sql = " AND ".join(where)
+    with db.ro() as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM ai_logs WHERE {where_sql}", args).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT id, ts, model, purpose, prompt_tokens, completion_tokens, total_tokens, "
+            f"cost_usd, cost_rmb, latency_ms, message_id, contact_id, status, error_msg "
+            f"FROM ai_logs WHERE {where_sql} ORDER BY ts DESC LIMIT ? OFFSET ?",
+            args + [size, offset_page]
+        ).fetchall()
+        items = [dict(r) for r in rows]
+
+    total_pages = max(1, (total + size - 1) // size)
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "size": size,
+        "total_pages": total_pages,
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+    }
+
+
+def get_email_24h_timing_analysis() -> dict:
+    """统计全天 24 小时（00:00 - 23:00）邮件收发分布，并结合主要贸易伙伴时区给出黄金沟通时段。"""
+    tz_offset = config.TZ_OFFSET_HOURS * 3600
+
+    # 初始化 24 小时桶
+    hours_data = [
+        {"hour": h, "hour_label": f"{h:02d}:00", "in_count": 0, "out_count": 0, "high_count": 0}
+        for h in range(24)
+    ]
+
+    with db.ro() as conn:
+        # 收信分布 (买家发送/我们接收)
+        in_rows = conn.execute(
+            "SELECT CAST(strftime('%H', sent_ts+?, 'unixepoch') AS INTEGER) as hr, "
+            "COUNT(*) as cnt, "
+            "SUM(CASE WHEN score >= ? THEN 1 ELSE 0 END) as high_cnt "
+            "FROM messages WHERE direction='in' "
+            "GROUP BY hr",
+            (tz_offset, config.HIGH_INTENT)
+        ).fetchall()
+        for r in in_rows:
+            hr = r["hr"]
+            if hr is not None and 0 <= hr < 24:
+                hours_data[hr]["in_count"] = r["cnt"] or 0
+                hours_data[hr]["high_count"] = r["high_cnt"] or 0
+
+        # 发信分布 (我方回复/发出)
+        out_rows = conn.execute(
+            "SELECT CAST(strftime('%H', sent_ts+?, 'unixepoch') AS INTEGER) as hr, "
+            "COUNT(*) as cnt "
+            "FROM messages WHERE direction='out' "
+            "GROUP BY hr",
+            (tz_offset,)
+        ).fetchall()
+        for r in out_rows:
+            hr = r["hr"]
+            if hr is not None and 0 <= hr < 24:
+                hours_data[hr]["out_count"] = r["cnt"] or 0
+
+    # 找出峰值
+    max_in = max((d["in_count"] for d in hours_data), default=0)
+    max_out = max((d["out_count"] for d in hours_data), default=0)
+    peak_in_hour = max(hours_data, key=lambda d: d["in_count"])["hour"] if max_in > 0 else 15
+    peak_out_hour = max(hours_data, key=lambda d: d["out_count"])["hour"] if max_out > 0 else 10
+
+    # 全球主要外贸市场与北京时间对照的沟通时机建议
+    regions = [
+        {
+            "region": "欧洲 (中欧/英国)",
+            "countries": "德国、法国、意大利、英国、西班牙、荷兰",
+            "tz_desc": "UTC+1 / UTC+0 (较北京晚 6-7 小时)",
+            "golden_bj_window": "15:00 - 18:00 (当地 09:00 - 12:00)",
+            "work_bj_window": "14:00 - 23:00",
+            "status_badge": "欧洲黄金窗口",
+            "advice": "欧洲买家习惯上班第一件事处理新邮件。北京时间 15:00-18:00 发送可正处于其收件箱顶端，回复率最高；18:00-20:00 适合进一步澄清技术参数。",
+        },
+        {
+            "region": "北美洲 (美东/加东)",
+            "countries": "美国 (纽约/波士顿)、加拿大 (多伦多)",
+            "tz_desc": "UTC-5 (较北京晚 12-13 小时)",
+            "golden_bj_window": "21:00 - 24:00 (当地 09:00 - 12:00)",
+            "work_bj_window": "20:00 - 05:00",
+            "status_badge": "美东黄金窗口",
+            "advice": "北美商务节奏极快。北京时间 20:30-22:30 定时送达，刚好切入美东早间开工时间；若需即时在线答复，可在此区间保持通知畅通。",
+        },
+        {
+            "region": "北美洲 (美西太平洋)",
+            "countries": "美国 (加州/西雅图/洛杉矶)、加拿大 (温哥华)",
+            "tz_desc": "UTC-8 (较北京晚 15-16 小时)",
+            "golden_bj_window": "00:00 - 03:00 (当地 09:00 - 12:00)",
+            "work_bj_window": "23:00 - 08:00",
+            "status_badge": "美西窗口",
+            "advice": "建议利用系统的定时发送或在凌晨前备妥草稿，让邮件在美西客户 08:30-09:30 到达。",
+        },
+        {
+            "region": "中东与海湾地区",
+            "countries": "阿联酋 (迪拜)、沙特阿拉伯、土耳其",
+            "tz_desc": "UTC+3 / UTC+4 (较北京晚 4-5 小时)",
+            "golden_bj_window": "13:30 - 17:00 (当地 09:30 - 13:00)",
+            "work_bj_window": "13:00 - 21:00",
+            "status_badge": "中东黄金窗口",
+            "advice": "注意宗教作息：沙特等国周五、周六为公休或祈祷日，周日至周四为常规工作日；北京时间下午为最佳交流期。",
+        },
+        {
+            "region": "亚太地区 (东南亚/日韩/澳新)",
+            "countries": "越南、泰国、新加坡、日本、澳大利亚",
+            "tz_desc": "UTC+7 至 UTC+11 (时差在 ±3 小时内)",
+            "golden_bj_window": "09:30 - 11:30 & 14:00 - 16:30",
+            "work_bj_window": "08:30 - 17:30",
+            "status_badge": "即时同频窗口",
+            "advice": "时区高度同频，支持即时交流。建议在收到询盘后 1 小时内快速初次响应以抢占商机。",
+        },
+    ]
+
+    return {
+        "hours_data": hours_data,
+        "max_in": max_in,
+        "max_out": max_out,
+        "peak_in_hour": peak_in_hour,
+        "peak_out_hour": peak_out_hour,
+        "regions": regions,
+    }
 

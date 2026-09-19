@@ -213,6 +213,26 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts DESC);
 
+-- ============ 大模型调用与 Token 测算日志 ============
+CREATE TABLE IF NOT EXISTS ai_logs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                INTEGER NOT NULL,
+    model             TEXT NOT NULL,
+    purpose           TEXT NOT NULL,         -- analysis (分类打分) / summary (中文摘要) / draft (起草回复) / profile (客户背调) / test (连通测试)
+    prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens      INTEGER NOT NULL DEFAULT 0,
+    cost_usd          REAL NOT NULL DEFAULT 0.0,
+    cost_rmb          REAL NOT NULL DEFAULT 0.0,
+    latency_ms        INTEGER,
+    message_id        INTEGER,
+    contact_id        INTEGER,
+    status            TEXT NOT NULL DEFAULT 'ok', -- ok / error
+    error_msg         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ai_logs_ts ON ai_logs(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_logs_purpose ON ai_logs(purpose, ts DESC);
+
 -- ============ 系统设置（键值对） ============
 CREATE TABLE IF NOT EXISTS settings (
     key             TEXT PRIMARY KEY,
@@ -414,5 +434,31 @@ CREATE TABLE IF NOT EXISTS social_touchpoints (
 );
 CREATE INDEX IF NOT EXISTS idx_social_touchpoints_lead ON social_touchpoints(lead_id, created_ts);
 
-
-
+-- ============ 外贸单证与凭证管理 (OCR 识别与电子归档) ============
+CREATE TABLE IF NOT EXISTS vouchers (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    voucher_no      TEXT    NOT NULL,                         -- 单据/凭证编号（如 INV-20260901, BL-MSK88992）
+    voucher_type    TEXT    NOT NULL DEFAULT 'commercial_invoice', -- 凭证类型：commercial_invoice, proforma_invoice, bill_of_lading, packing_list, bank_slip, customs_declaration, contract, other
+    title           TEXT,                                     -- 凭证标题/简述
+    trade_date      TEXT,                                     -- 业务发生日期 (YYYY-MM-DD)
+    currency        TEXT    NOT NULL DEFAULT 'USD',           -- 币种 (USD, EUR, CNY, GBP等)
+    amount          REAL    NOT NULL DEFAULT 0.0,             -- 凭证金额
+    contact_id      INTEGER REFERENCES contacts(id) ON DELETE SET NULL, -- 关联客户
+    order_id        INTEGER REFERENCES orders(id) ON DELETE SET NULL,   -- 关联订单
+    shipper         TEXT,                                     -- 发货人/卖方公司
+    consignee       TEXT,                                     -- 收货人/买方公司
+    product_desc    TEXT,                                     -- 品名与货品描述
+    file_path       TEXT,                                     -- 凭证原件扫描件/文件路径
+    ocr_status      TEXT    NOT NULL DEFAULT 'pending',       -- OCR状态：success, failed, manual, pending
+    ocr_raw_text    TEXT,                                     -- 本地 OCR 识别原始文本
+    status          TEXT    NOT NULL DEFAULT 'confirmed',     -- 状态：confirmed (已确认), pending (待核对), archived (已归档)
+    notes           TEXT,                                     -- 备忘与备注说明
+    created_ts      INTEGER NOT NULL,
+    updated_ts      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vouchers_no      ON vouchers(voucher_no);
+CREATE INDEX IF NOT EXISTS idx_vouchers_type    ON vouchers(voucher_type);
+CREATE INDEX IF NOT EXISTS idx_vouchers_date    ON vouchers(trade_date DESC);
+CREATE INDEX IF NOT EXISTS idx_vouchers_contact ON vouchers(contact_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_order   ON vouchers(order_id);
+CREATE INDEX IF NOT EXISTS idx_vouchers_status  ON vouchers(status);

@@ -40,8 +40,18 @@
       </div>
       <div>
         <div style="font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:6px;">AI 摘要</div>
-        <div style="font-size:12px;color:var(--text-2);padding:10px;background:var(--surface-2);border-radius:var(--radius-sm);min-height:80px;">
-          {{ d.ai_model }} 生成
+        <div style="font-size:12px;color:var(--text-2);padding:10px;background:var(--surface-2);border-radius:var(--radius-sm);min-height:80px;line-height:1.6;">
+          {% if d.summary_cn %}
+            <div style="color:var(--text-1);font-weight:500;">{{ d.summary_cn }}</div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:6px;display:flex;align-items:center;gap:6px;">
+              <span class="tag sm ok">已保存摘要</span>
+              <span>由 {{ d.ai_model or 'AI' }} 生成</span>
+            </div>
+          {% else %}
+            <div style="color:var(--text-3);font-style:italic;">
+              暂无 AI 摘要（仅对询盘/报价/售后/投诉生成以节约 Token）
+            </div>
+          {% endif %}
         </div>
       </div>
     </div>

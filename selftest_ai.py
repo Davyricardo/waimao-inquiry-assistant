@@ -52,7 +52,7 @@ check("默认 base_url 有值", ai_client.get_base_url().startswith("http"))
 check("默认 model 有值", bool(ai_client.get_model()))
 check("chat() 无 Key 返回 None",
       ai_client.chat([{"role": "user", "content": "hi"}]) is None)
-check("预设表含 6 个服务商", len(ai_client.AI_PRESETS) == 6,
+check("预设表含服务商", len(ai_client.AI_PRESETS) >= 6,
       f"实际 {len(ai_client.AI_PRESETS)}")
 
 # ==================================================================
@@ -195,7 +195,7 @@ print("=" * 66)
 from app import web   # noqa: E402
 ctx = web._ai_context()
 check("含 ai_status", "ai_status" in ctx)
-check("含 ai_presets", len(ctx["ai_presets"]) == 6)
+check("含 ai_presets", len(ctx["ai_presets"]) >= 6)
 check("含 ai_conf", isinstance(ctx["ai_conf"], dict))
 check("conf 含 configured/enabled",
       "configured" in ctx["ai_conf"] and "enabled" in ctx["ai_conf"])

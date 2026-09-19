@@ -1,0 +1,98 @@
+<div class="page-head">
+  <div>
+    <h1>询盘列表</h1>
+    <p class="sub">共 {{ data.total }} 封邮件</p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="get" action="/messages">
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end;">
+      <div>
+        <label class="field">关键词</label>
+        <input type="text" name="q" value="{{ f.q }}" placeholder="主题 / 正文 / 发件人">
+      </div>
+      <div>
+        <label class="field">类别</label>
+        <select name="category">
+          <option value="">全部</option>
+          <option value="inquiry">询盘</option>
+          <option value="quote">报价</option>
+          <option value="after_sale">售后</option>
+          <option value="complaint">投诉</option>
+          <option value="spam">垃圾邮件</option>
+          <option value="other">其他</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">最低意向分</label>
+        <input type="number" name="min_score" value="{{ f.min_score }}" min="0" max="100" placeholder="0">
+      </div>
+      <button class="btn primary" type="submit">筛选</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if data.items %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>发件人</th>
+          <th>主题</th>
+          <th>类别</th>
+          <th style="text-align:right;">意向分</th>
+          <th>状态</th>
+          <th>时间</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in data.items %}
+        <tr>
+          <td style="max-width:180px;">
+            <div style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              <a href="/messages/{{ m.id }}">{{ m.contact_name or m.from_addr }}</a>
+            </div>
+            {% if m.contact_company %}
+            <div style="font-size:11px;color:var(--text-3);">{{ m.contact_company }}</div>
+            {% endif %}
+          </td>
+          <td style="max-width:300px;">
+            <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              {{ m.subject }}
+            </div>
+          </td>
+          <td><span class="tag c-{{ m.category }}">{{ m.category }}</span></td>
+          <td style="text-align:right;">
+            {% if m.score is not none %}
+            <span class="score {% if m.score >= 75 %}hi{% elif m.score >= 50 %}mid{% else %}lo{% endif %}"
+                  style="font-size:14px;">{{ m.score }}</span>
+            {% else %}
+            <span style="color:var(--text-3);">—</span>
+            {% endif %}
+          </td>
+          <td><span class="tag">{{ m.status }}</span></td>
+          <td style="font-size:11.5px;color:var(--text-3);white-space:nowrap;">{{{ ts_fmt(m.sent_ts) }}}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if data.pages > 1 %}
+  <div class="pager">
+    {% if data.page > 1 %}
+    <a href="/messages?page={{ data.page - 1 }}&q={{ f.q }}&category={{ f.category }}&min_score={{ f.min_score }}">上一页</a>
+    {% endif %}
+    <span class="cur">{{ data.page }} / {{ data.pages }}</span>
+    {% if data.page < data.pages %}
+    <a href="/messages?page={{ data.page + 1 }}&q={{ f.q }}&category={{ f.category }}&min_score={{ f.min_score }}">下一页</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty">没有符合条件的邮件</div>
+  {% endif %}
+</div>

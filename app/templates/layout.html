@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>{{ page_title }} · 外贸询盘助手</title>
+<script type="text/javascript">
+(function() {
+  try {
+    var t = localStorage.getItem('mb_theme') || 'slate';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch(e) {}
+})();
+window.setTheme = function(t) {
+  try { localStorage.setItem('mb_theme', t); } catch(e) {}
+  document.documentElement.setAttribute('data-theme', t);
+  var el = document.getElementById('theme-selector');
+  if (el && el.value !== t) el.value = t;
+};
+document.addEventListener('DOMContentLoaded', function() {
+  try {
+    var cur = localStorage.getItem('mb_theme') || 'slate';
+    var el = document.getElementById('theme-selector');
+    if (el) el.value = cur;
+  } catch(e) {}
+});
+</script>
+<link rel="stylesheet" href="/static/style.css?v=20260919-theme">
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">{% include '_nav.html' %}</nav>
+  <main class="main">{{{ body }}}</main>
+</div>
+</body>
+</html>

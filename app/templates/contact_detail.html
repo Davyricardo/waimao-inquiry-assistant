@@ -1,0 +1,326 @@
+<div class="page-head">
+  <div>
+    <h1>{{ c.name or c.email }}</h1>
+    <p class="sub">
+      {{ c.email }}
+      {% if c.company %} · {{ c.company }}{% endif %}
+      {% if c.country %} · {{ c.country }}{% endif %}
+      {% if c.local_time %} · 当地时间: {{ c.local_time.time_str }} ({{ c.local_time.weekday_cn }} · {{ c.local_time.diff_desc }}){% endif %}
+    </p>
+  </div>
+  <div class="btn-row">
+    <button type="button" class="btn primary sm" onclick="openEditModal()">编辑资料</button>
+    <form method="post" action="/contacts/{{ c.id }}/delete" style="margin:0;display:inline;"
+          onsubmit="return confirm('确定彻底删除该客户 [{{ c.email }}] 及其全部邮件和线索吗？此操作不可逆！');">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <button type="submit" class="btn sm danger">删除客户</button>
+    </form>
+    <a class="btn sm" href="/contacts">返回列表</a>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<div class="card">
+  <h2>客户背调</h2>
+
+  {% if c.bg %}
+  <div class="sum-head" style="margin-bottom:12px;">
+    <span class="sum-title">
+      来源国家 / 公司背景分析
+    </span>
+    <span class="source-pill {% if c.bg.source == 'ai' %}ai{% else %}rule{% endif %}">
+      {% if c.bg.source == 'ai' %}AI · {{ c.bg.model }}{% else %}规则推断{% endif %}
+    </span>
+  </div>
+
+  <div class="bg-grid">
+    <div class="bg-item">
+      <div class="label">来源国家/地区</div>
+      <div class="value">
+        {{ c.country or c.bg.country or '未识别' }}
+        {% if c.bg.country_conf %}<span class="bg-conf">（置信度 {{ c.bg.country_conf }}）</span>{% endif %}
+      </div>
+      {% if c.local_time %}
+      <div style="margin-top:4px;">
+        {{{ c.local_time.badge_html }}}
+      </div>
+      {% endif %}
+      {% if c.bg.country_evidence %}
+      <div class="bg-note">依据：{{ c.bg.country_evidence }}</div>
+      {% endif %}
+    </div>
+
+    <div class="bg-item">
+      <div class="label">公司主体</div>
+      <div class="value">{{ c.bg.company_name or c.company or '未识别' }}</div>
+      {% if c.company_type or c.bg.company_type %}
+      <div class="bg-note">{{ c.company_type or c.bg.company_type }}</div>
+      {% endif %}
+    </div>
+
+    <div class="bg-item">
+      <div class="label">渠道身份</div>
+      <div class="value">{{ c.channel_role or c.bg.channel_role or '未识别' }}</div>
+      {% if c.bg.business_scope %}<div class="bg-note">{{ c.bg.business_scope }}</div>{% endif %}
+    </div>
+
+    <div class="bg-item">
+      <div class="label">可信度</div>
+      <div class="value cred-{% if c.credibility == '高' %}hi{% elif c.credibility == '低' %}lo{% else %}mid{% endif %}">
+        {{ c.credibility or c.bg.credibility or '中' }}
+        {% if c.bg.is_free_mail %}<span class="bg-conf">（免费邮箱）</span>{% endif %}
+      </div>
+      {% if c.bg.credibility_reason_cn %}
+      <div class="bg-note">{{ c.bg.credibility_reason_cn }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if c.local_time_card %}
+  {{{ c.local_time_card }}}
+  {% endif %}
+
+  {% if c.bg.summary_cn %}
+  <div class="sum-main" style="margin-top:12px;">{{ c.bg.summary_cn }}</div>
+  {% endif %}
+
+  <div class="sum-meta" style="margin-top:10px;">
+    {% if c.bg.website %}<span>官网：<b>{{ c.bg.website }}</b></span>{% endif %}
+    {% if c.bg.phone %}<span>电话：<b>{{ c.bg.phone }}</b></span>{% endif %}
+    {% if c.bg.company_size_hint %}<span>规模：<b>{{ c.bg.company_size_hint }}</b></span>{% endif %}
+    {% if c.profiled_ts %}<span>分析时间：{{{ ts_full(c.profiled_ts) }}}</span>{% endif %}
+  </div>
+
+  {% if c.bg.risk_flags_cn %}
+  <div style="margin-top:10px;">
+    <span style="font-size:12px;color:var(--text-2);">风险提示：</span>
+    {% for f in c.bg.risk_flags_cn %}
+    <span class="risk-flag">{{ f }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if c.bg.evidence %}
+  <div style="margin-top:12px;">
+    <span style="font-size:12px;color:var(--text-2);font-weight:500;">判断依据（来自邮件原文）</span>
+    <ul class="ev-list">
+      {% for e in c.bg.evidence %}
+      <li>{{ e }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="hint" style="margin-top:12px;">
+    以上结论<strong>仅基于邮件内容推断</strong>，未联网核实。请结合实际情况判断。
+  </div>
+
+  <div class="btn-row" style="margin-top:12px;">
+    <form method="post" action="/contacts/{{ c.id }}/profile" style="margin:0;">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <button class="btn sm" type="submit">重新分析</button>
+    </form>
+  </div>
+
+  {% else %}
+  {% if c.local_time_card %}
+  {{{ c.local_time_card }}}
+  <div style="margin-top:12px;"></div>
+  {% endif %}
+  <div class="alert warn" style="margin-bottom:0;">
+    这个客户还没有背景分析。
+    <form method="post" action="/contacts/{{ c.id }}/profile" style="display:inline;margin-left:6px;">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <button class="btn sm" type="submit">立即分析</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="metrics">
+  <div class="metric {% if c.score >= 75 %}hi{% endif %}">
+    <div class="label">意向分</div>
+    <div class="value">{{ c.score }}</div>
+    <div class="foot">历史最高</div>
+  </div>
+  <div class="metric">
+    <div class="label">收到邮件</div>
+    <div class="value">{{ c.msg_count }}</div>
+    <div class="foot">封</div>
+  </div>
+  <div class="metric">
+    <div class="label">我方回复</div>
+    <div class="value">{{ c.reply_count }}</div>
+    <div class="foot">封</div>
+  </div>
+  <div class="metric">
+    <div class="label">当前阶段</div>
+    <form method="post" action="/contacts/{{ c.id }}/stage" style="margin:4px 0 2px;">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <select name="stage" onchange="this.form.submit()" style="font-size:12px;padding:3px 6px;font-weight:600;background:var(--surface);">
+        <option value="new" {% if c.stage == 'new' %}selected{% endif %}>新客户 (new)</option>
+        <option value="engaging" {% if c.stage == 'engaging' %}selected{% endif %}>沟通中 (engaging)</option>
+        <option value="quoted" {% if c.stage == 'quoted' %}selected{% endif %}>已报价 (quoted)</option>
+        <option value="negotiating" {% if c.stage == 'negotiating' %}selected{% endif %}>洽谈中 (negotiating)</option>
+        <option value="won" {% if c.stage == 'won' %}selected{% endif %}>已成交 (won)</option>
+        <option value="lost" {% if c.stage == 'lost' %}selected{% endif %}>已流失 (lost)</option>
+        <option value="spam" {% if c.stage == 'spam' %}selected{% endif %}>垃圾客户 (spam)</option>
+      </select>
+    </form>
+    <div class="foot">首次 {{{ ts_day(c.first_seen_ts) }}}</div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h2>会话线索</h2>
+    {% if c.threads %}
+      {% for t in c.threads %}
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title">{{ t.subject }}</div>
+          <div class="row-desc">
+            {{ t.c }} 封 · 最近 {{{ ago(t.last_ts) }}}
+          </div>
+        </div>
+        <div class="score {% if t.score >= 75 %}hi{% elif t.score >= 50 %}mid{% else %}lo{% endif %}"
+             style="font-size:14px;">{{ t.score }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">暂无会话</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>最近往来</h2>
+    {% if c.recent %}
+      {% for m in c.recent %}
+      <div class="row">
+        <div class="row-main">
+          <div class="row-title">
+            <a href="/messages/{{ m.id }}">{{ m.subject }}</a>
+          </div>
+          <div class="row-desc">
+            {% if m.direction == 'out' %}我方回复{% else %}客户来信{% endif %}
+            · {{{ ts_fmt(m.sent_ts) }}}
+            {% if m.category %} · {{ m.category }}{% endif %}
+          </div>
+        </div>
+        {% if m.direction == 'in' and m.score is not none %}
+        <div class="score {% if m.score >= 75 %}hi{% elif m.score >= 50 %}mid{% else %}lo{% endif %}"
+             style="font-size:14px;">{{ m.score }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">暂无记录</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if c.note %}
+<div class="card" style="margin-top:16px;">
+  <h2>客户跟进备注</h2>
+  <div style="font-size:12.5px;color:var(--text-1);white-space:pre-wrap;line-height:1.6;background:var(--surface-2);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--border);">{{ c.note }}</div>
+</div>
+{% endif %}
+
+<!-- 编辑客户资料模态弹窗 -->
+<div id="contact-modal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:999;align-items:center;justify-content:center;padding:16px;">
+  <div class="modal-card" style="background:var(--surface);border-radius:var(--radius);max-width:540px;width:100%;max-height:90vh;overflow-y:auto;border:1px solid var(--border-strong);box-shadow:0 8px 30px rgba(0,0,0,0.16);padding:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2 style="margin:0;font-size:16px;">编辑客户信息</h2>
+      <button type="button" onclick="closeEditModal()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-3);">&times;</button>
+    </div>
+    <form method="post" action="/contacts/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="contact_id" value="{{ c.id }}">
+
+      <div class="form-row">
+        <label class="field">客户邮箱 <span style="color:var(--danger)">*</span></label>
+        <input type="email" name="email" value="{{ c.email }}" required>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">联系人姓名</label>
+          <input type="text" name="name" value="{{ c.name or '' }}" placeholder="如 John Smith">
+        </div>
+        <div>
+          <label class="field">国家 / 地区</label>
+          <input type="text" name="country" value="{{ c.country or '' }}" placeholder="如 德国、美国、阿联酋、Germany (自动识别当地时间)">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">公司主体</label>
+          <input type="text" name="company" value="{{ c.company or '' }}" placeholder="如 Acme Corp LLC">
+        </div>
+        <div>
+          <label class="field">跟进阶段</label>
+          <select name="stage">
+            <option value="new" {% if c.stage == 'new' %}selected{% endif %}>新客户 (new)</option>
+            <option value="engaging" {% if c.stage == 'engaging' %}selected{% endif %}>沟通中 (engaging)</option>
+            <option value="quoted" {% if c.stage == 'quoted' %}selected{% endif %}>已报价 (quoted)</option>
+            <option value="negotiating" {% if c.stage == 'negotiating' %}selected{% endif %}>洽谈中 (negotiating)</option>
+            <option value="won" {% if c.stage == 'won' %}selected{% endif %}>已成交 (won)</option>
+            <option value="lost" {% if c.stage == 'lost' %}selected{% endif %}>已流失 (lost)</option>
+            <option value="spam" {% if c.stage == 'spam' %}selected{% endif %}>垃圾客户 (spam)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;" class="form-row">
+        <div>
+          <label class="field">渠道身份</label>
+          <select name="channel_role">
+            <option value="">未指定</option>
+            <option value="经销商" {% if c.channel_role == '经销商' %}selected{% endif %}>经销商</option>
+            <option value="批发商" {% if c.channel_role == '批发商' %}selected{% endif %}>批发商</option>
+            <option value="进口商" {% if c.channel_role == '进口商' %}selected{% endif %}>进口商</option>
+            <option value="零售商" {% if c.channel_role == '零售商' %}selected{% endif %}>零售商</option>
+            <option value="贸易商" {% if c.channel_role == '贸易商' %}selected{% endif %}>贸易商</option>
+            <option value="终端用户" {% if c.channel_role == '终端用户' %}selected{% endif %}>终端用户</option>
+            <option value="OEM/ODM" {% if c.channel_role == 'OEM/ODM' %}selected{% endif %}>OEM/ODM</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">企业类型</label>
+          <input type="text" name="company_type" value="{{ c.company_type or '' }}" placeholder="如 德国企业">
+        </div>
+        <div>
+          <label class="field">初步可信度</label>
+          <select name="credibility">
+            <option value="">未评估</option>
+            <option value="高" {% if c.credibility == '高' %}selected{% endif %}>高</option>
+            <option value="中" {% if c.credibility == '中' %}selected{% endif %}>中</option>
+            <option value="低" {% if c.credibility == '低' %}selected{% endif %}>低</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="field">客户备注与背景要点</label>
+        <textarea name="note" rows="3" placeholder="采购意向偏好、主要规格需求、特别跟进注意事项等">{{ c.note or '' }}</textarea>
+      </div>
+
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button type="button" class="btn" onclick="closeEditModal()">取消</button>
+        <button type="submit" class="btn primary">保存修改</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openEditModal() {
+  document.getElementById('contact-modal').style.display = 'flex';
+}
+function closeEditModal() {
+  document.getElementById('contact-modal').style.display = 'none';
+}
+</script>

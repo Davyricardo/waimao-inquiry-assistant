@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>{{ title }} · 外贸询盘助手</title>
+<link rel="stylesheet" href="/static/style.css?v=20260918-1">
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="brand">外贸询盘助手<small>外贸智能邮件系统</small></div>
+    <a class="nav-item {{ nav_cls }}" href="/">数据看板</a>
+    <a class="nav-item" href="/messages">询盘列表</a>
+    <a class="nav-item" href="/contacts">客户管理</a>
+    <a class="nav-item" href="/review">审核台</a>
+    <a class="nav-item" href="/rules">自动规则</a>
+    <a class="nav-item" href="/templates">回复模板</a>
+    <a class="nav-item" href="/settings">系统设置</a>
+  </nav>
+  <main class="main">
+    {{{ content }}}
+  </main>
+</div>
+</body>
+</html>

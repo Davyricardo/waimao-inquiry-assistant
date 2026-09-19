@@ -1,0 +1,175 @@
+<div class="page-head">
+  <div>
+    <h1>公司管理</h1>
+    <p class="sub">外贸企业中英文主体抬头、出海联系信息与美金境外电汇（T/T）收款银行账户</p>
+  </div>
+  <div class="btn-row">
+    <a class="btn sm" href="/orders" target="_blank">查看关联订单单证</a>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:20px;align-items:start;">
+  <!-- 左侧：公司档案与银行账户表单 -->
+  <div>
+    <form method="post" action="/company/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+
+      <!-- 模块一：公司主体档案 -->
+      <div class="card" style="margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+          <span style="font-size:18px;">🏢</span>
+          <div>
+            <h2 style="margin:0;font-size:15px;">外贸公司主体档案</h2>
+            <div class="hint" style="margin:2px 0 0;">将自动印制在形式发票 (PI)、商业发票 (CI)、装箱单 (PL) 顶部抬头</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+          <div>
+            <label class="field">卖方公司英文名称 (Company Name in English) <span style="color:var(--danger)">*</span></label>
+            <input type="text" name="company_name_en" value="{{ seller_profile.company_name_en }}" placeholder="如: SHENZHEN GLOBAL TRADE CO., LIMITED" required>
+          </div>
+          <div>
+            <label class="field">卖方公司中文名称</label>
+            <input type="text" name="company_name_cn" value="{{ seller_profile.company_name_cn }}" placeholder="如: 深圳市全球行国际贸易有限公司">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label class="field">公司英文详细地址 (Company Address in English)</label>
+          <input type="text" name="company_address_en" value="{{ seller_profile.company_address_en }}" placeholder="如: Room 808, Building B, Tech Park, Nanshan District, Shenzhen, China">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;" class="form-row">
+          <div>
+            <label class="field">联系电话 / 传真 (Tel / Fax)</label>
+            <input type="text" name="company_tel" value="{{ seller_profile.company_tel }}" placeholder="+86-755-88889999">
+          </div>
+          <div>
+            <label class="field">官方业务邮箱 (Email)</label>
+            <input type="email" name="company_email" value="{{ seller_profile.company_email }}" placeholder="sales@yourcompany.com">
+          </div>
+          <div>
+            <label class="field">公司官方网址 (Website)</label>
+            <input type="text" name="company_website" value="{{ seller_profile.company_website }}" placeholder="www.yourcompany.com">
+          </div>
+        </div>
+      </div>
+
+      <!-- 模块二：境外外汇收款银行账户 -->
+      <div class="card" style="margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+          <span style="font-size:18px;">🏦</span>
+          <div>
+            <h2 style="margin:0;font-size:15px;">境外美金电汇收款银行账户 (T/T Wire Transfer)</h2>
+            <div class="hint" style="margin:2px 0 0;">海外买家付款汇路指引，将作为必附卡片生成于每张形式发票 (PI) 下方</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+          <div>
+            <label class="field">收款人户名 (Beneficiary Name)</label>
+            <input type="text" name="bank_beneficiary_name" value="{{ seller_profile.bank_beneficiary_name }}" placeholder="与银行账户英文名严格一致">
+          </div>
+          <div>
+            <label class="field">开户行英文名称 (Beneficiary Bank)</label>
+            <input type="text" name="bank_name" value="{{ seller_profile.bank_name }}" placeholder="如: BANK OF CHINA, SHENZHEN BRANCH">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label class="field">开户行英文地址 (Bank Address)</label>
+          <input type="text" name="bank_address" value="{{ seller_profile.bank_address }}" placeholder="如: No. 1088 Shennan Road, Shenzhen, Guangdong, China">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:12px;" class="form-row">
+          <div>
+            <label class="field">收款账号 / IBAN (Account Number)</label>
+            <input type="text" name="bank_account_no" value="{{ seller_profile.bank_account_no }}" placeholder="如: 9556 8888 1234 5678" style="font-family:monospace;font-weight:600;">
+          </div>
+          <div>
+            <label class="field">国际电汇代码 (SWIFT Code / BIC)</label>
+            <input type="text" name="bank_swift_code" value="{{ seller_profile.bank_swift_code }}" placeholder="如: BKCHCNBJ400" style="font-family:monospace;font-weight:600;">
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top:14px;">
+        <button type="submit" class="btn primary">保存公司主体与银行账户</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- 右侧：PI 单证页眉与汇款指引实时效果模拟 -->
+  <div>
+    <div class="card" style="border:1px solid var(--accent);background:var(--surface);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="font-size:12px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;">
+          📄 单证页眉效果预览 (PI / CI / PL)
+        </span>
+        <span class="badge badge-primary" style="font-size:11px;">自动套用</span>
+      </div>
+
+      <!-- 单证头部模拟 -->
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;background:var(--surface-2);margin-bottom:14px;">
+        <div style="text-align:center;border-bottom:2px solid var(--border-strong);padding-bottom:12px;margin-bottom:12px;">
+          <div style="font-size:16px;font-weight:700;color:var(--text);letter-spacing:0.04em;">
+            {{ seller_profile.company_name_en or 'YOUR COMPANY NAME IN ENGLISH' }}
+          </div>
+          {% if seller_profile.company_name_cn %}
+          <div style="font-size:12px;color:var(--text-2);margin-top:2px;">
+            {{ seller_profile.company_name_cn }}
+          </div>
+          {% endif %}
+          <div style="font-size:11px;color:var(--text-3);margin-top:6px;line-height:1.4;">
+            {{ seller_profile.company_address_en or 'Company English Registered Address, City, Country' }}<br>
+            Tel: {{ seller_profile.company_tel or '+86-xxx-xxxxxxxx' }} · Email: {{ seller_profile.company_email or 'sales@example.com' }} · Web: {{ seller_profile.company_website or 'www.example.com' }}
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-2);padding:4px 0;">
+          <span>DOCUMENT: <strong>PROFORMA INVOICE</strong></span>
+          <span>DATE: 2026-09-19</span>
+        </div>
+      </div>
+
+      <!-- 汇款信息模拟 -->
+      <div style="border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:14px;background:var(--surface);">
+        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px;">
+          🏦 REMITTANCE INSTRUCTIONS (T/T WIRE TRANSFER)
+        </div>
+        <table style="width:100%;font-size:11.5px;border-collapse:collapse;">
+          <tbody>
+            <tr>
+              <td style="color:var(--text-3);width:38%;padding:3px 0;">Beneficiary:</td>
+              <td style="font-weight:600;color:var(--text);padding:3px 0;">{{ seller_profile.bank_beneficiary_name or '—' }}</td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-3);padding:3px 0;">Bank Name:</td>
+              <td style="color:var(--text);padding:3px 0;">{{ seller_profile.bank_name or '—' }}</td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-3);padding:3px 0;">Bank Address:</td>
+              <td style="color:var(--text-2);padding:3px 0;">{{ seller_profile.bank_address or '—' }}</td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-3);padding:3px 0;">Account / IBAN:</td>
+              <td style="font-family:monospace;font-weight:600;color:var(--accent);padding:3px 0;">{{ seller_profile.bank_account_no or '—' }}</td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-3);padding:3px 0;">SWIFT Code:</td>
+              <td style="font-family:monospace;font-weight:600;color:var(--text);padding:3px 0;">{{ seller_profile.bank_swift_code or '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="hint" style="margin-top:12px;font-size:11.5px;">
+        💡 提示：在此页面保存后，系统中的所有历史和新建订单单证（PI / CI / PL）将自动采用最新抬头与汇款路径，无需手动逐一修改。
+      </div>
+    </div>
+  </div>
+</div>

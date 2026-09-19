@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="slate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>登录 · 外贸询盘助手</title>
+<script type="text/javascript">
+(function() {
+  try {
+    var t = localStorage.getItem('mb_theme') || 'slate';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch(e) {}
+})();
+</script>
+<link rel="stylesheet" href="/static/style.css?v=20260919-theme">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <h1>外贸询盘助手</h1>
+    <p class="sub">外贸询盘自动处理系统</p>
+
+    {% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+    <form method="post" action="/login">
+      <div class="form-row">
+        <label class="field">用户名</label>
+        <input type="text" name="username" autocomplete="username" autofocus>
+      </div>
+      <div class="form-row">
+        <label class="field">密码</label>
+        <input type="password" name="password" autocomplete="current-password">
+      </div>
+      <button class="btn primary" type="submit" style="width:100%;">登录</button>
+    </form>
+
+    <p class="hint" style="margin-top:18px;text-align:center;">
+      本系统仅监听本机，通过 SSH 隧道访问
+    </p>
+  </div>
+</div>
+</body>
+</html>

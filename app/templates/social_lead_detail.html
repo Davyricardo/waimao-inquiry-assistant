@@ -1,0 +1,600 @@
+<!-- 面包屑与顶部导航 -->
+  <div class="breadcrumb mb-3">
+    <a href="/social">← 返回社媒获客列表</a>
+    <span class="mx-2">/</span>
+    <span class="text-muted">潜客详情: {{ lead.name }}</span>
+  </div>
+
+  <!-- 顶部潜客抬头卡片 -->
+  <div class="card mb-4">
+    <div class="card-body flex-between align-items-center">
+      <div>
+        <div class="d-flex align-items-center gap-2">
+          <h2 class="mb-0">{{ lead.name }}</h2>
+          <span class="badge {{ lead.platform_info.badge_class }}">
+            {{ lead.platform_info.icon }} {{ lead.platform_info.name }}
+          </span>
+          <span class="rating-stars">{{ lead.rating_stars }}</span>
+          <span class="badge" style="background: {{ lead.stage_info.bg }}; color: {{ lead.stage_info.color }}; border: 1px solid {{ lead.stage_info.color }};">
+            {{ lead.stage_info.name }}
+          </span>
+          {% if lead.followup_badge != "未设定日程" %}
+            <span class="badge badge-{{ lead.followup_color }}">{{ lead.followup_badge }}</span>
+          {% endif %}
+        </div>
+        <div class="text-muted mt-1">
+          {{ lead.company or '公司未填' }}
+          {% if lead.position %} · <span class="font-weight-bold">{{ lead.position }}</span>{% endif %}
+          {% if lead.industry_or_niche %} · 行业: {{ lead.industry_or_niche }}{% endif %}
+        </div>
+      </div>
+
+      <div class="btn-group">
+        {% if lead.whatsapp_formatted %}
+          <a href="{{ lead.wa_click_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-whatsapp">
+            💬 WhatsApp 免存直聊
+          </a>
+        {% endif %}
+        {% if lead.stage != "converted" %}
+          <button class="btn btn-success" onclick="openConvertModal({{ lead.id }}, '{{ lead.name }}', '{{ lead.email }}')">
+            🎉 转为正式客户
+          </button>
+        {% else %}
+          <a href="/contacts?search={{ lead.email }}" class="btn btn-outline-success">
+            ✓ 已是正式客户 (#{{ lead.contact_id }})
+          </a>
+        {% endif %}
+        <button class="btn btn-outline" onclick="openEditModal()">编辑资料</button>
+        <form method="POST" action="/social/{{ lead.id }}/delete" style="display:inline;" onsubmit="return confirm('确定要删除该潜客吗？此操作将同时删除所有沟通记录。')">
+          <button type="submit" class="btn btn-outline-danger">删除</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- 左侧分栏：潜客社媒档案、当地时间时区、阶段流转 -->
+    <div class="col-4">
+      <!-- 潜客档案与联系方式 -->
+      <div class="card mb-4">
+        <div class="card-header font-weight-bold">👤 买家社媒与联系档案</div>
+        <div class="card-body">
+          <div class="profile-item mb-2">
+            <div class="text-xs text-muted">WhatsApp / 国际电话:</div>
+            {% if lead.whatsapp_formatted %}
+              <div class="d-flex align-items-center gap-2 mt-1">
+                <strong>{{ lead.whatsapp }}</strong>
+                <a href="{{ lead.wa_click_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-whatsapp">
+                  直连
+                </a>
+              </div>
+            {% else %}
+              <div class="text-muted">未填</div>
+            {% endif %}
+          </div>
+
+          <div class="profile-item mb-2">
+            <div class="text-xs text-muted">LinkedIn 主页:</div>
+            {% if lead.linkedin_url %}
+              <div class="mt-1">
+                <a href="{{ lead.linkedin_url }}" target="_blank" rel="noopener noreferrer" class="text-primary font-weight-bold">
+                  🔗 访问 LinkedIn 个人/企业主页
+                </a>
+              </div>
+            {% else %}
+              <div class="text-muted">未填</div>
+            {% endif %}
+          </div>
+
+          <div class="profile-item mb-2">
+            <div class="text-xs text-muted">电子邮箱:</div>
+            <div>{{ lead.email or '未获取 (拿到后可一键转正式客户)' }}</div>
+          </div>
+
+          <div class="profile-item mb-2">
+            <div class="text-xs text-muted">公司官网:</div>
+            {% if lead.website %}
+              <div><a href="{% if not lead.website.startswith('http') %}https://{% endif %}{{ lead.website }}" target="_blank" rel="noopener noreferrer">{{ lead.website }}</a></div>
+            {% else %}
+              <div class="text-muted">未填</div>
+            {% endif %}
+          </div>
+
+          <div class="profile-item">
+            <div class="text-xs text-muted">需求备忘与痛点:</div>
+            <div class="bg-light p-2 rounded mt-1 text-sm">{{ lead.notes or '暂无备忘内容' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 当地时间与沟通时机建议 -->
+      {% if lead.country %}
+        <div class="mb-4">
+          {{{ lead.time_card_html }}}
+        </div>
+      {% endif %}
+
+      <!-- 快速推进流转阶段与设置日程 -->
+      <div class="card mb-4">
+        <div class="card-header font-weight-bold">🚀 推进阶段与日程更新</div>
+        <div class="card-body">
+          <form method="POST" action="/social/{{ lead.id }}/stage">
+            <div class="form-group mb-3">
+              <label class="form-label text-sm">变更流转阶段</label>
+              <select name="stage" class="form-control">
+                <option value="discovered" {% if lead.stage == "discovered" %}selected{% endif %}>1. 新发掘/待破冰</option>
+                <option value="connected" {% if lead.stage == "connected" %}selected{% endif %}>2. 已建联/已加好友</option>
+                <option value="chatted" {% if lead.stage == "chatted" %}selected{% endif %}>3. 沟通中/已破冰</option>
+                <option value="catalog_sent" {% if lead.stage == "catalog_sent" %}selected{% endif %}>4. 已推介图册/方案</option>
+                <option value="converted" {% if lead.stage == "converted" %}selected{% endif %}>5. 已转为正式客户</option>
+                <option value="unqualified" {% if lead.stage == "unqualified" %}selected{% endif %}>6. 无效/暂无意向</option>
+              </select>
+            </div>
+
+            <div class="form-group mb-3">
+              <label class="form-label text-sm">流转流水备注</label>
+              <input type="text" name="note" class="form-control" placeholder="如：已通过好友申请，准备发目录">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">更新流转状态</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧分栏：多场景智能破冰话术生成器 & 触达流水时间轴 -->
+    <div class="col-8">
+      <!-- 多场景社媒外贸破冰话术与开发信生成器 -->
+      <div class="outreach-box shadow-sm">
+        <div class="flex-between align-items-center mb-3">
+          <div>
+            <h3 class="mb-0">✍️ 智能社媒破冰话术与开发信</h3>
+            <p class="text-muted text-xs mb-0">针对外贸 LinkedIn、WhatsApp、展会等不同场景量身定制，支持一键注入产品库参数与多语言切换</p>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <label class="text-xs text-muted mb-0">输出语言:</label>
+            <select id="script_lang" class="form-control form-control-sm" style="width: 130px;" onchange="updateGeneratedScript()">
+              <option value="en">🇬🇧 英语 (EN)</option>
+              <option value="es">🇪🇸 西班牙语 (ES)</option>
+              <option value="de">🇩🇪 德语 (DE)</option>
+              <option value="fr">🇫🇷 法语 (FR)</option>
+              <option value="pt">🇵🇹 葡萄牙语 (PT)</option>
+              <option value="ar">🇸🇦 阿拉伯语 (AR)</option>
+              <option value="ru">🇷🇺 俄语 (RU)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 场景 Tab 切换按钮 -->
+        <div class="outreach-tabs">
+          <button type="button" class="outreach-tab-btn active" data-tab="linkedin_note" onclick="switchTab(this, 'linkedin_note')">
+            💼 LinkedIn 300字邀请附言
+          </button>
+          <button type="button" class="outreach-tab-btn" data-tab="whatsapp_first" onclick="switchTab(this, 'whatsapp_first')">
+            💬 WhatsApp 首次破冰
+          </button>
+          <button type="button" class="outreach-tab-btn" data-tab="whatsapp_product" onclick="switchTab(this, 'whatsapp_product')">
+            📑 WhatsApp 选品推介
+          </button>
+          <button type="button" class="outreach-tab-btn" data-tab="linkedin_inmail" onclick="switchTab(this, 'linkedin_inmail')">
+            ✉️ LinkedIn InMail 开发信
+          </button>
+          <button type="button" class="outreach-tab-btn" data-tab="exhibition_followup" onclick="switchTab(this, 'exhibition_followup')">
+            🏷️ 展会会后跟进
+          </button>
+          <button type="button" class="outreach-tab-btn" data-tab="reengage_greeting" onclick="switchTab(this, 'reengage_greeting')">
+            🎉 潜客激活与问候
+          </button>
+        </div>
+
+        <!-- 选品与附加诉求 -->
+        <div class="row mb-3 bg-light p-2 rounded">
+          <div class="col-6">
+            <label class="text-xs text-muted mb-1">推荐产品 (从产品库选择自动注入参数):</label>
+            <select id="script_product_id" class="form-control form-control-sm" onchange="updateGeneratedScript()">
+              <option value="">-- 不指定具体产品 (通用解决方案) --</option>
+              {% for p in products %}
+                <option value="{{ p.id }}">{{ p.sku }} · {{ p.name_en }} (MOQ: {{ p.moq }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="text-xs text-muted mb-1">自定义补充卖点 / 优势 (附在文末):</label>
+            <input type="text" id="script_custom_pitch" class="form-control form-control-sm" placeholder="如：We offer free samples & CE certification" oninput="updateGeneratedScript()">
+          </div>
+        </div>
+
+        <!-- 生成话术展示文本域 -->
+        <div class="position-relative">
+          <textarea id="script_content" class="script-output-area" rows="6"></textarea>
+          <div id="char_counter" class="char-counter">0 字符</div>
+        </div>
+
+        <!-- 动作操作条 -->
+        <div class="flex-between align-items-center mt-3 pt-2 border-top">
+          <div class="text-xs text-muted" id="script_tip">
+            💡 LinkedIn 好友邀请受 300 字符限制，本系统已严格控制长度以保证 100% 成功发送。
+          </div>
+          <div class="btn-group">
+            <button type="button" class="btn btn-outline" onclick="copyScript()">📋 复制文案</button>
+            {% if lead.whatsapp_formatted %}
+              <button type="button" class="btn btn-whatsapp" onclick="sendViaWhatsApp()">
+                💬 携带此文案直发 WhatsApp
+              </button>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- 社媒触达与跟进时间轴 -->
+      <div class="card shadow-sm">
+        <div class="card-header flex-between align-items-center">
+          <div class="font-weight-bold">📅 社媒触达与沟通流水 ({{ lead.touchpoints|length }} 条记录)</div>
+          <button class="btn btn-sm btn-primary" onclick="toggleTouchForm()">+ 录入新触达</button>
+        </div>
+
+        <!-- 录入新触达折叠表单 -->
+        <div id="touchFormBox" class="card-body bg-light border-bottom" style="display:none;">
+          <form method="POST" action="/social/{{ lead.id }}/touchpoint">
+            <div class="form-row">
+              <div class="form-group col-4">
+                <label class="form-label text-sm required">触达渠道</label>
+                <select name="channel" class="form-control form-control-sm">
+                  <option value="whatsapp" selected>💬 WhatsApp</option>
+                  <option value="linkedin">💼 LinkedIn</option>
+                  <option value="facebook">👥 Facebook</option>
+                  <option value="instagram">📸 Instagram</option>
+                  <option value="call">📞 电话/视频会议</option>
+                  <option value="email">✉️ 邮件</option>
+                  <option value="other">📌 其它方式</option>
+                </select>
+              </div>
+              <div class="form-group col-4">
+                <label class="form-label text-sm required">动作类型</label>
+                <select name="touch_type" class="form-control form-control-sm">
+                  <option value="first_touch" selected>首次破冰打招呼</option>
+                  <option value="catalog_pitch">推介产品图册/参数</option>
+                  <option value="sample_followup">索样进展跟进</option>
+                  <option value="quote_followup">报价单追踪</option>
+                  <option value="holiday_greeting">节日问候/关怀</option>
+                  <option value="call">电话/音视频通话</option>
+                  <option value="note">日常跟进备忘</option>
+                </select>
+              </div>
+              <div class="form-group col-4">
+                <label class="form-label text-sm">买家当前反馈</label>
+                <select name="feedback" class="form-control form-control-sm">
+                  <option value="no_reply">已发未回</option>
+                  <option value="replied">已积极回复探讨</option>
+                  <option value="asked_catalog">索要产品目录</option>
+                  <option value="asked_quote">索要报价单</option>
+                  <option value="rejected">暂无需求/委婉拒绝</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label text-sm required">沟通内容摘要 / 客户回复</label>
+              <textarea name="content" class="form-control form-control-sm" rows="2" required placeholder="记录发送了哪段文案、客户提出了什么要求、目前态度如何..."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label text-sm">下一步待办计划 (Next Action)</label>
+              <input type="text" name="next_action" class="form-control form-control-sm" placeholder="如：后天给对方发送 2026 最新电机报价单">
+            </div>
+
+            <div class="text-right">
+              <button type="button" class="btn btn-sm btn-secondary" onclick="toggleTouchForm()">取消</button>
+              <button type="submit" class="btn btn-sm btn-primary">保存沟通记录</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- 时间轴列表 -->
+        <div class="card-body">
+          {% if lead.touchpoints %}
+            <div class="timeline-track">
+              {% for tp in lead.touchpoints %}
+                <div class="timeline-item">
+                  <div class="timeline-dot" style="background: var(--accent);"></div>
+                  <div class="timeline-bubble">
+                    <div class="timeline-head flex-between">
+                      <div class="d-flex align-items-center gap-2">
+                        <span class="badge {{ tp.channel_info.badge_class }}">{{ tp.channel_info.name }}</span>
+                        <strong>{{ tp.touch_type_info.icon }} {{ tp.touch_type_info.name }}</strong>
+                        <span class="badge badge-secondary text-xs">{{ tp.feedback_label }}</span>
+                      </div>
+                      <div class="text-xs text-muted">
+                        {{ tp.operator }} · {{ tp.created_at_str }}
+                      </div>
+                    </div>
+                    <div class="timeline-detail mt-2">
+                      {{ tp.content }}
+                    </div>
+                    {% if tp.next_action %}
+                      <div class="mt-2 text-xs text-info bg-light p-1 px-2 rounded">
+                        👉 下一步行动: {{ tp.next_action }}
+                      </div>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-center py-4 text-muted">
+              暂无触达流水，点击上方「+ 录入新触达」记录与海外客户的沟通轨迹！
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- 模态弹窗：一键转为正式客户（标准规范） -->
+<div id="convertModal" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeConvertModal()">
+  <div class="modal-card" style="max-width:480px;">
+    <div class="modal-head">
+      <h3>🎉 转化为 CRM 正式客户</h3>
+      <button type="button" class="modal-close" onclick="closeConvertModal()">&times;</button>
+    </div>
+    <form id="convertForm" method="POST" action="">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <p style="font-size:12.5px;color:var(--text-2);line-height:1.6;margin-bottom:14px;">
+        转化后，该潜客档案、社媒主页、WhatsApp 与触达流水将自动注入「客户管理」库，并支持直接创建销售订单与生成形式发票（PI）。
+      </p>
+      <div class="form-row">
+        <label class="field">潜客姓名</label>
+        <input type="text" id="convert_name_display" disabled style="background:var(--surface-2);">
+      </div>
+      <div class="form-row">
+        <label class="field">客户有效电子邮箱 <span style="color:var(--danger)">*</span></label>
+        <input type="email" name="email" id="convert_email_input" required placeholder="name@company.com">
+        <div class="hint" style="margin-top:4px;">外贸 CRM 客户以邮箱作为唯一识别凭据。如现有客户已存在该邮箱，将自动合并并补充社媒信息。</div>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button type="button" class="btn" onclick="closeConvertModal()">取消</button>
+        <button type="submit" class="btn primary">确认转入客户库</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 模态弹窗：编辑潜客资料（标准规范） -->
+<div id="editLeadModal" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeEditModal()">
+  <div class="modal-card" style="max-width:620px;">
+    <div class="modal-head">
+      <h3>编辑潜客档案</h3>
+      <button type="button" class="modal-close" onclick="closeEditModal()">&times;</button>
+    </div>
+    <form method="POST" action="/social/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="lead_id" value="{{ lead.id }}">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">潜客联系人姓名 <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="name" required value="{{ lead.name }}">
+        </div>
+        <div>
+          <label class="field">所属公司名称</label>
+          <input type="text" name="company" value="{{ lead.company }}">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">职位 / 角色</label>
+          <input type="text" name="position" value="{{ lead.position }}">
+        </div>
+        <div>
+          <label class="field">国家 / 地区</label>
+          <input type="text" name="country" value="{{ lead.country }}">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">来源渠道</label>
+          <select name="source_platform">
+            <option value="linkedin" {% if lead.source_platform == "linkedin" %}selected{% endif %}>💼 LinkedIn</option>
+            <option value="whatsapp" {% if lead.source_platform == "whatsapp" %}selected{% endif %}>💬 WhatsApp</option>
+            <option value="facebook" {% if lead.source_platform == "facebook" %}selected{% endif %}>👥 Facebook</option>
+            <option value="instagram" {% if lead.source_platform == "instagram" %}selected{% endif %}>📸 Instagram</option>
+            <option value="tiktok" {% if lead.source_platform == "tiktok" %}selected{% endif %}>🎵 TikTok</option>
+            <option value="google" {% if lead.source_platform == "google" %}selected{% endif %}>🌐 Google/独立站</option>
+            <option value="exhibition" {% if lead.source_platform == "exhibition" %}selected{% endif %}>🏷️ 展会名片</option>
+            <option value="other" {% if lead.source_platform == "other" %}selected{% endif %}>📌 其他渠道</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">WhatsApp / 手机号</label>
+          <input type="text" name="whatsapp" value="{{ lead.whatsapp }}">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">LinkedIn 主页 URL</label>
+          <input type="url" name="linkedin_url" value="{{ lead.linkedin_url }}">
+        </div>
+        <div>
+          <label class="field">电子邮箱</label>
+          <input type="email" name="email" value="{{ lead.email }}">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">主营行业 / 品类</label>
+          <input type="text" name="industry_or_niche" value="{{ lead.industry_or_niche }}">
+        </div>
+        <div>
+          <label class="field">公司官网</label>
+          <input type="text" name="website" value="{{ lead.website }}">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">流转阶段</label>
+          <select name="stage">
+            <option value="discovered" {% if lead.stage == "discovered" %}selected{% endif %}>新发掘/待破冰</option>
+            <option value="connected" {% if lead.stage == "connected" %}selected{% endif %}>已建联/已加好友</option>
+            <option value="chatted" {% if lead.stage == "chatted" %}selected{% endif %}>沟通中/已破冰</option>
+            <option value="catalog_sent" {% if lead.stage == "catalog_sent" %}selected{% endif %}>已推介图册/方案</option>
+            <option value="converted" {% if lead.stage == "converted" %}selected{% endif %}>已转为正式客户</option>
+            <option value="unqualified" {% if lead.stage == "unqualified" %}selected{% endif %}>无效/暂无意向</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">意向星级</label>
+          <select name="rating">
+            <option value="5" {% if lead.rating == 5 %}selected{% endif %}>★★★★★ 5星</option>
+            <option value="4" {% if lead.rating == 4 %}selected{% endif %}>★★★★☆ 4星</option>
+            <option value="3" {% if lead.rating == 3 %}selected{% endif %}>★★★☆☆ 3星</option>
+            <option value="2" {% if lead.rating == 2 %}selected{% endif %}>★★☆☆☆ 2星</option>
+            <option value="1" {% if lead.rating == 1 %}selected{% endif %}>★☆☆☆☆ 1星</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">下次跟进日期</label>
+          <input type="date" name="next_followup_date" value="{{ lead.next_followup_date }}">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="field">需求备忘与分析</label>
+        <textarea name="notes" rows="3">{{ lead.notes }}</textarea>
+      </div>
+
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button type="button" class="btn" onclick="closeEditModal()">取消</button>
+        <button type="submit" class="btn primary">保存修改</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// 当前潜客元数据 (供 JS 异步换算)
+var currentLeadId = {{ lead.id }};
+var currentTab = 'linkedin_note';
+var generatedScriptsCache = {};
+
+// 初始化加载破冰话术
+document.addEventListener('DOMContentLoaded', function() {
+  updateGeneratedScript();
+});
+
+function switchTab(btn, tabKey) {
+  document.querySelectorAll('.outreach-tab-btn').forEach(function(b) {
+    b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  currentTab = tabKey;
+  renderCurrentScript();
+}
+
+function updateGeneratedScript() {
+  var lang = document.getElementById('script_lang').value;
+  var productId = document.getElementById('script_product_id').value;
+  var customPitch = document.getElementById('script_custom_pitch').value;
+
+  fetch('/api/social/generate-scripts', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      lead_id: currentLeadId,
+      product_id: productId ? parseInt(productId) : null,
+      lang: lang,
+      custom_pitch: customPitch
+    })
+  })
+  .then(function(res) { return res.json(); })
+  .then(function(data) {
+    if (data.ok && data.scripts) {
+      generatedScriptsCache = data.scripts;
+      renderCurrentScript();
+    }
+  })
+  .catch(function(err) {
+    console.error('话术生成失败:', err);
+  });
+}
+
+function renderCurrentScript() {
+  var content = generatedScriptsCache[currentTab] || '';
+  var textarea = document.getElementById('script_content');
+  textarea.value = content;
+  
+  var len = content.length;
+  var counter = document.getElementById('char_counter');
+  var tip = document.getElementById('script_tip');
+
+  if (currentTab === 'linkedin_note') {
+    counter.innerText = len + ' / 300 字符 (LinkedIn 好友申请上限)';
+    if (len > 300) {
+      counter.classList.add('limit-warn');
+    } else {
+      counter.classList.remove('limit-warn');
+    }
+    tip.innerText = '💡 LinkedIn 好友邀请受 300 字符限制，本系统已严格控制长度以保证 100% 成功发送。';
+  } else if (currentTab === 'whatsapp_first' || currentTab === 'whatsapp_product') {
+    counter.innerText = len + ' 字符 (WhatsApp 推荐简洁短句)';
+    counter.classList.remove('limit-warn');
+    tip.innerText = '💡 WhatsApp 沟通宜简明亲切，避免过长文字导致海外买家阅读负担。';
+  } else {
+    counter.innerText = len + ' 字符';
+    counter.classList.remove('limit-warn');
+    tip.innerText = '💡 可直接复制此文案发送给买家，或点击绿色按钮通过 WhatsApp 直发。';
+  }
+}
+
+function copyScript() {
+  var text = document.getElementById('script_content').value;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(function() {
+    alert('已成功复制文案到剪贴板！');
+  }).catch(function() {
+    var ta = document.getElementById('script_content');
+    ta.select();
+    document.execCommand('copy');
+    alert('已成功复制文案到剪贴板！');
+  });
+}
+
+function sendViaWhatsApp() {
+  var digits = "{{ lead.whatsapp_formatted }}";
+  if (!digits) {
+    alert('该潜客尚未录入有效 WhatsApp 手机号！');
+    return;
+  }
+  var text = document.getElementById('script_content').value;
+  var url = 'https://wa.me/' + digits + '?text=' + encodeURIComponent(text);
+  window.open(url, '_blank');
+}
+
+function toggleTouchForm() {
+  var box = document.getElementById('touchFormBox');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+function openConvertModal(leadId, leadName, leadEmail) {
+  document.getElementById('convertModal').style.display = 'flex';
+  document.getElementById('convertForm').action = '/social/' + leadId + '/convert';
+  document.getElementById('convert_name_display').value = leadName;
+  document.getElementById('convert_email_input').value = leadEmail || '';
+}
+
+function closeConvertModal() {
+  document.getElementById('convertModal').style.display = 'none';
+}
+
+function openEditModal() {
+  document.getElementById('editLeadModal').style.display = 'flex';
+}
+
+function closeEditModal() {
+  document.getElementById('editLeadModal').style.display = 'none';
+}
+</script>

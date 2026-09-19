@@ -1,0 +1,77 @@
+<div class="page-head">
+  <div>
+    <h1>审核台</h1>
+    <p class="sub">AI 起草的回复，发送前由你确认 · 共 {{ drafts | length }} 条待处理</p>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+{% if drafts %}
+  {% for d in drafts %}
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+      <div style="min-width:0;">
+        <div style="font-size:14px;font-weight:600;margin-bottom:3px;">
+          <a href="/messages/{{ d.message_id }}">{{ d.contact_name or d.from_addr }}</a>
+          {% if d.company %}<span style="font-size:12px;color:var(--text-3);font-weight:400;"> · {{ d.company }}</span>{% endif %}
+        </div>
+        <div style="font-size:12px;color:var(--text-2);word-break:break-word;">
+          原邮件：{{ d.in_subject }}
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-top:3px;">
+          {{{ ts_full(d.in_ts) }}} · {{ d.from_addr }}
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div class="score {% if d.score >= 75 %}hi{% elif d.score >= 50 %}mid{% else %}lo{% endif %}"
+             style="font-size:22px;">{{ d.score }}</div>
+        <div style="margin-top:4px;">
+          <span class="tag c-{{ d.category }}">{{ d.category }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:14px;">
+      <div>
+        <div style="font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:6px;">客户原邮件</div>
+        <div style="font-size:12px;color:var(--text-2);white-space:pre-wrap;max-height:220px;overflow:auto;padding:10px;background:var(--surface-2);border-radius:var(--radius-sm);">{{{ truncate(d.in_body, 1200) }}}</div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:6px;">AI 摘要</div>
+        <div style="font-size:12px;color:var(--text-2);padding:10px;background:var(--surface-2);border-radius:var(--radius-sm);min-height:80px;">
+          {{ d.ai_model }} 生成
+        </div>
+      </div>
+    </div>
+
+    <form method="post" action="/review/{{ d.id }}">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <div style="margin-bottom:10px;">
+        <label class="field">回复草稿（可直接编辑后再发送）</label>
+        <div style="font-size:11.5px;color:var(--text-3);margin-bottom:6px;">
+          主题：{{ d.subject }}
+        </div>
+        <textarea name="final_text" rows="12" style="min-height:200px;">{{ d.body_text }}</textarea>
+      </div>
+      {% if d.send_error %}
+      <div class="alert err">{{ d.send_error }}</div>
+      {% endif %}
+      <div class="btn-row">
+        <button class="btn primary" type="submit" name="action" value="send">确认并发送</button>
+        <button class="btn ok" type="submit" name="action" value="approve">仅标记通过</button>
+        <button class="btn danger" type="submit" name="action" value="reject">否决</button>
+        <a class="btn" href="/messages/{{ d.message_id }}">查看完整会话</a>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card">
+  <div class="empty">
+    审核队列是空的。<br>
+    有新询盘到达时，AI 会自动起草回复并出现在这里。
+  </div>
+</div>
+{% endif %}

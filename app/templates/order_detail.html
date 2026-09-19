@@ -1,0 +1,743 @@
+<div class="page-head">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+      <h1>{{ order.order_no }}</h1>
+      {{{ order.stage_badge }}}
+      {{{ order.etd_tag }}}
+    </div>
+    <p class="sub">
+      项目：{{ order.title }} · 客户：<a href="/contacts/{{ order.contact_id }}">{{ order.customer_name or order.customer_company }}</a> ({{ order.customer_country or '-' }}) · 贸易术语：{{ order.trade_term }}
+    </p>
+  </div>
+  <div class="btn-row">
+    <a class="btn sm" href="/orders/{{ order.id }}/docs/pi" target="_blank" title="预览并打印形式发票">📄 形式发票 (PI)</a>
+    <a class="btn sm" href="/orders/{{ order.id }}/docs/ci" target="_blank" title="预览并打印商业发票">📑 商业发票 (CI)</a>
+    <a class="btn sm" href="/orders/{{ order.id }}/docs/pl" target="_blank" title="预览并打印装箱单">📦 装箱单 (PL)</a>
+    <button class="btn primary sm" type="button" onclick="openStageModal()">➔ 推进阶段</button>
+    <button class="btn sm" type="button" onclick="openFinanceModal()">💰 记录款项与运费</button>
+    <button class="btn sm" type="button" onclick="openEditOrderModal()">✏️ 编辑订单</button>
+    <a class="btn sm" href="/orders">返回看板</a>
+    <form method="post" action="/orders/{{ order.id }}/delete" style="display:inline;" onsubmit="return confirm('确定彻底删除订单【{{ order.order_no }}】及所有时间轴记录吗？');">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <button class="btn sm danger" type="submit">删除</button>
+    </form>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<!-- ======================= 8 阶段流转进度条 ======================= -->
+<div class="order-stepper">
+  {% for st in stages_list %}
+  <div class="stepper-node {% if st.step == order.stage_step %}active{% elif st.step < order.stage_step %}passed{% endif %}">
+    <span class="stepper-step-num">STEP {{ st.step }}</span>
+    <span class="stepper-name">{{ st.icon }} {{ st.name }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ======================= 4 大核心财务指标卡 ======================= -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px;margin-bottom:18px;">
+  <div class="card" style="padding:16px;">
+    <div style="font-size:12px;color:var(--text-3);margin-bottom:4px;">订单总金额</div>
+    <div style="font-size:22px;font-weight:700;color:var(--text);">
+      {{ order.currency_symbol }}{{ order.total_amount_formatted }}
+    </div>
+    <div style="font-size:11.5px;color:var(--text-2);margin-top:2px;">
+      约合 ¥{{ order.revenue_cny }} (汇率 {{ order.settlement_fx_rate }})
+    </div>
+  </div>
+
+  <div class="card" style="padding:16px;">
+    <div style="font-size:12px;color:var(--text-3);margin-bottom:4px;">已收买家货款</div>
+    <div style="font-size:22px;font-weight:700;color:var(--accent);">
+      {{ order.currency_symbol }}{{ order.received_total_formatted }}
+    </div>
+    <div style="font-size:11.5px;color:var(--text-2);margin-top:2px;">
+      回款率 {{ order.received_pct }}% (定金 {{ order.deposit_amount }} / 尾款 {{ order.balance_amount }})
+    </div>
+  </div>
+
+  <div class="card" style="padding:16px;">
+    <div style="font-size:12px;color:var(--text-3);margin-bottom:4px;">总支出成本 (工厂+运费+杂费)</div>
+    <div style="font-size:22px;font-weight:700;color:var(--text);">
+      ¥{{ order.total_cost_cny }}
+    </div>
+    <div style="font-size:11.5px;color:var(--text-2);margin-top:2px;">
+      工厂 ¥{{ order.factory_cost }} · 物流 ¥{{ order.shipping_cost }} · 杂费 ¥{{ order.other_cost }}
+    </div>
+  </div>
+
+  <div class="card" style="padding:16px;border-color:rgba(34,197,94,0.3);background:linear-gradient(135deg,var(--surface) 0%,rgba(34,197,94,0.03) 100%);">
+    <div style="font-size:12px;color:var(--text-3);margin-bottom:4px;">预估订单净利润</div>
+    <div style="font-size:22px;font-weight:700;color:var(--ok);">
+      +¥{{ order.net_profit_cny }}
+    </div>
+    <div style="font-size:11.5px;color:var(--ok);margin-top:2px;font-weight:600;">
+      毛利率 {{ order.profit_margin }}%
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 左右布局内容 ======================= -->
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:18px;align-items:start;">
+  <!-- 左栏：履约明细与时间轴流水 -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+    <!-- 履约与物流详情 -->
+    <div class="card">
+      <h3 style="font-size:15px;margin-bottom:12px;display:flex;align-items:center;gap:6px;">
+        <span>🚢</span> 履约出运与生产要素
+      </h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;">
+        <div>
+          <span style="color:var(--text-3);">预计交货期 (ETD)：</span>
+          <strong>{{ order.etd_display }}</strong>
+          <span style="margin-left:6px;">{{{ order.etd_tag }}}</span>
+        </div>
+        <div>
+          <span style="color:var(--text-3);">实际出运日期：</span>
+          <strong>{{ order.actual_delivery_date or '尚未出运' }}</strong>
+        </div>
+        <div>
+          <span style="color:var(--text-3);">目的港 / 目的国：</span>
+          <strong>{{ order.destination_port or '未设置' }}</strong>
+        </div>
+        <div>
+          <span style="color:var(--text-3);">提单号 / 快递追踪单号：</span>
+          {% if order.tracking_or_bl_no %}
+          <strong style="color:var(--accent);font-family:monospace;font-size:13.5px;">{{ order.tracking_or_bl_no }}</strong>
+          {% else %}
+          <span style="color:var(--text-3);">开船或寄件后填入</span>
+          {% endif %}
+        </div>
+        <div>
+          <span style="color:var(--text-3);">贸易术语：</span>
+          <strong>{{ order.trade_term }}</strong>
+        </div>
+        <div>
+          <span style="color:var(--text-3);">付款条款：</span>
+          <span>{{ order.payment_term }}</span>
+        </div>
+        <div>
+          <span style="color:var(--text-3);">装运港 (Loading Port)：</span>
+          <strong>{{ order.loading_port or 'Shenzhen, China' }}</strong>
+        </div>
+        <div>
+          <span style="color:var(--text-3);">承运人 / 船名航次：</span>
+          <span>{{ order.carrier or '未指定' }}</span>
+        </div>
+        <div style="grid-column:1 / -1;">
+          <span style="color:var(--text-3);">包装唛头 (Shipping Marks)：</span>
+          <strong style="font-family:monospace;background:rgba(120,120,120,0.08);padding:2px 6px;border-radius:4px;">{{ order.shipping_marks or 'N/M' }}</strong>
+        </div>
+      </div>
+
+      {% if order.forwarder_name %}
+      <div style="margin-top:14px;padding:10px 12px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:12.5px;">
+        <strong>📦 关联货代渠道：</strong>
+        <span>{{ order.forwarder_name }} - {{ order.forwarder_quote_title }}</span>
+        {% if order.forwarder_phone %}<span style="color:var(--text-3);margin-left:8px;">(电话: {{ order.forwarder_phone }})</span>{% endif %}
+        {% if order.forwarder_transit %}<div style="color:var(--text-2);margin-top:3px;">时效说明: {{ order.forwarder_transit }} · 杂费: {{ order.forwarder_fees or '-' }}</div>{% endif %}
+      </div>
+      {% endif %}
+
+      {% if order.note %}
+      <div style="margin-top:12px;font-size:12.5px;color:var(--text-2);background:var(--surface-2);padding:10px 12px;border-radius:var(--radius-sm);line-height:1.5;">
+        <strong>📝 订单说明与客户生产要求：</strong><br>
+        {{ order.note }}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- 订单产品明细品项 -->
+    <div class="card" style="padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+        <div>
+          <h3 style="font-size:15px;margin:0;display:flex;align-items:center;gap:6px;">
+            <span>📦</span> 订单产品明细品项 (共 {{ order.items | length }} 项)
+          </h3>
+          <div style="font-size:11.5px;color:var(--text-3);margin-top:2px;">
+            自动计算货值、装箱件重尺；支持从产品库快捷挑选或自定义添加
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <form method="post" action="/orders/{{ order.id }}/items/sync" style="margin:0;" onsubmit="return confirm('确定按明细表总金额同步更新订单合同总额与工厂成本吗？');">
+            <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+            <button class="btn sm" type="submit" title="根据下方明细合计自动覆盖订单总金额与工厂出厂成本">🔄 同步总额与成本</button>
+          </form>
+          <button class="btn primary sm" type="button" onclick="openAddItemModal()">+ 添加产品项</button>
+        </div>
+      </div>
+
+      {% if not order.items %}
+      <div style="padding:28px;text-align:center;color:var(--text-3);">
+        <div style="font-size:32px;margin-bottom:8px;">📋</div>
+        <p style="font-size:13.5px;margin-bottom:4px;">当前订单尚未添加具体产品项明细</p>
+        <p style="font-size:12px;color:var(--text-2);">点击右上角「+ 添加产品项」从产品库选取，即可自动生成 PI/CI/PL 单证！</p>
+      </div>
+      {% else %}
+      <div style="overflow-x:auto;">
+        <table class="table" style="margin:0;font-size:12.5px;">
+          <thead>
+            <tr>
+              <th style="width:36px;text-align:center;">#</th>
+              <th style="width:110px;">SKU 型号</th>
+              <th>英文品名 / 规格</th>
+              <th style="width:75px;text-align:right;">订购数</th>
+              <th style="width:50px;">单位</th>
+              <th style="width:90px;text-align:right;">单价({{ order.currency }})</th>
+              <th style="width:95px;text-align:right;">小计({{ order.currency }})</th>
+              <th style="width:85px;text-align:right;">出厂价(CNY)</th>
+              <th style="width:70px;text-align:center;">箱数</th>
+              <th style="width:100px;text-align:right;">毛重(KG)</th>
+              <th style="width:95px;text-align:right;">体积(CBM)</th>
+              <th style="width:60px;text-align:center;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in order.items %}
+            <tr>
+              <td style="text-align:center;color:var(--text-3);">{{ it.item_no }}</td>
+              <td><strong style="font-family:monospace;color:var(--accent);">{{ it.sku or '-' }}</strong></td>
+              <td>
+                <div style="font-weight:600;">{{ it.name_en }}</div>
+                {% if it.name_cn %}<div style="font-size:11.5px;color:var(--text-2);">{{ it.name_cn }}</div>{% endif %}
+                {% if it.specs %}<div style="font-size:11px;color:var(--text-3);">{{ it.specs }}</div>{% endif %}
+              </td>
+              <td style="text-align:right;font-weight:600;">{{ it.quantity }}</td>
+              <td>{{ it.unit }}</td>
+              <td style="text-align:right;">{{ it.unit_price_formatted }}</td>
+              <td style="text-align:right;font-weight:600;color:var(--text);">{{ it.amount_formatted }}</td>
+              <td style="text-align:right;color:var(--text-2);">¥{{ it.unit_cost_cny }}</td>
+              <td style="text-align:center;">{{ it.cartons }} 箱</td>
+              <td style="text-align:right;">{{ it.gw_formatted }}</td>
+              <td style="text-align:right;color:var(--accent);font-weight:600;">{{ it.cbm_formatted }}</td>
+              <td style="text-align:center;">
+                <form method="post" action="/orders/{{ order.id }}/items/{{ it.id }}/delete" style="display:inline;margin:0;" onsubmit="return confirm('确定删除该品项吗？');">
+                  <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+                  <button class="mini-btn danger" type="submit">删除</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:var(--surface-2);">
+              <td colspan="3" style="text-align:right;">明细合计汇总：</td>
+              <td style="text-align:right;">{{ order.items_summary.total_qty }}</td>
+              <td></td>
+              <td></td>
+              <td style="text-align:right;color:var(--accent);font-size:13.5px;">{{ order.currency }} ${{ order.items_summary.total_amount_formatted }}</td>
+              <td style="text-align:right;color:var(--text-2);">¥{{ order.items_summary.total_cost_cny_formatted }}</td>
+              <td style="text-align:center;">{{ order.items_summary.total_cartons }} 箱</td>
+              <td style="text-align:right;">{{ order.items_summary.total_gw_formatted }} kg</td>
+              <td style="text-align:right;color:var(--accent);">{{ order.items_summary.total_cbm_formatted }} CBM</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- 时间轴全过程流水 -->
+    <div class="card">
+      <h3 style="font-size:15px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+        <span>📜</span> 订单全过程时间轴流水 ({{ order.timeline|length }} 条记录)
+      </h3>
+      <p style="font-size:12px;color:var(--text-3);margin-bottom:14px;">客观记录每一步阶段流转、收款到账与关键备注</p>
+
+      <div class="timeline-track">
+        {% for evt in order.timeline %}
+        <div class="timeline-item">
+          <div class="timeline-dot">{{ evt.to_stage_icon }}</div>
+          <div class="timeline-bubble">
+            <div class="timeline-head">
+              <span class="timeline-action">{{ evt.action_name }}</span>
+              <span class="timeline-time">{{ evt.date_str }} · {{ evt.operator }}</span>
+            </div>
+            <div class="timeline-detail">
+              {{ evt.detail }}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- 右栏：买家客户资料与快捷推进 -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+    <!-- 买家客户档案卡片 -->
+    <div class="card">
+      <h3 style="font-size:14px;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
+        <span>👤</span> 买家客户档案
+      </h3>
+      <div style="font-size:13px;line-height:1.6;">
+        <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:2px;">
+          <a href="/contacts/{{ order.contact_id }}">{{ order.customer_name or order.customer_email }}</a>
+        </div>
+        {% if order.customer_company %}
+        <div style="color:var(--text-2);font-weight:500;">{{ order.customer_company }}</div>
+        {% endif %}
+        <div style="color:var(--text-3);font-size:12px;">{{ order.customer_email }}</div>
+        {% if order.customer_country %}
+        <div style="margin-top:6px;font-size:12px;color:var(--text-2);">
+          🌍 所在国：<strong>{{ order.customer_country }}</strong>
+        </div>
+        {% endif %}
+      </div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+        <a class="btn sm" href="/contacts/{{ order.contact_id }}" style="width:100%;text-align:center;">查看客户背调与往来邮件 ➔</a>
+      </div>
+    </div>
+
+    <!-- 快捷流转操作台 -->
+    <div class="card" style="background:var(--surface-2);">
+      <h3 style="font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+        <span>⚡</span> 节点流转控制台
+      </h3>
+      <div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px;">
+        当前处于：<strong>{{ order.stage_name }}</strong> (第 {{ order.stage_step }}/8 步)
+      </div>
+
+      {% if order.next_stage %}
+      <form method="post" action="/orders/{{ order.id }}/stage">
+        <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+        <input type="hidden" name="stage" value="{{ order.next_stage }}">
+        <div style="margin-bottom:10px;">
+          <label class="field">下一步节点动作：</label>
+          <div style="font-weight:600;color:var(--accent);font-size:13px;margin-bottom:6px;">
+            ➔ {{ order.next_action }}
+          </div>
+          <input type="text" name="note" placeholder="可填写流水备注（如：水单编号、查验情况等）">
+        </div>
+        <button class="btn primary" type="submit" style="width:100%;">一键确认推进</button>
+      </form>
+      {% else %}
+      <div style="text-align:center;padding:12px 0;color:var(--ok);font-weight:600;">
+        🏆 本订单已全部交付履约完成！
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+
+<!-- ======================= 模态框: 推进流转阶段 ======================= -->
+<div id="modal-stage" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeStageModal()">
+  <div class="modal-card" style="max-width:480px;">
+    <div class="modal-head">
+      <h3>推进订单流转阶段</h3>
+      <button class="btn-icon" type="button" onclick="closeStageModal()">✕</button>
+    </div>
+    <form method="post" action="/orders/{{ order.id }}/stage">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <label class="field">目标阶段</label>
+          <select name="stage" required>
+            {% for st in stages_list %}
+            <option value="{{ st.key }}" {% if st.key == order.stage %}selected{% endif %}>
+              {{ st.icon }} 第{{ st.step }}步：{{ st.name }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field">阶段变更说明 / 时间轴备注</label>
+          <textarea name="note" rows="3" placeholder="例如：收到德国商业银行水单 $5,550 定金，已安排工厂开始排产。"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" type="button" onclick="closeStageModal()">取消</button>
+        <button class="btn primary" type="submit">确认推进</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ======================= 模态框: 更新款项与成本 ======================= -->
+<div id="modal-finance" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeFinanceModal()">
+  <div class="modal-card" style="max-width:540px;">
+    <div class="modal-head">
+      <h3>记录收款流水与实际成本</h3>
+      <button class="btn-icon" type="button" onclick="closeFinanceModal()">✕</button>
+    </div>
+    <form method="post" action="/orders/{{ order.id }}/finance">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">已收定金金额 ({{ order.currency }})</label>
+            <input type="number" step="0.01" name="deposit_amount" value="{{ order.deposit_amount }}" required>
+          </div>
+          <div>
+            <label class="field">已收尾款金额 ({{ order.currency }})</label>
+            <input type="number" step="0.01" name="balance_amount" value="{{ order.balance_amount }}" required>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">工厂生产采购成本 (¥ CNY)</label>
+            <input type="number" step="0.01" name="factory_cost" value="{{ order.factory_cost }}">
+          </div>
+          <div>
+            <label class="field">实际货代运费 (¥ CNY)</label>
+            <input type="number" step="0.01" name="shipping_cost" value="{{ order.shipping_cost }}">
+          </div>
+          <div>
+            <label class="field">报关/杂费成本 (¥ CNY)</label>
+            <input type="number" step="0.01" name="other_cost" value="{{ order.other_cost }}">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:10px;">
+          <div>
+            <label class="field">结算汇率</label>
+            <input type="number" step="0.0001" name="settlement_fx_rate" value="{{ order.settlement_fx_rate }}" required>
+          </div>
+          <div>
+            <label class="field">提单号 / 快递追踪号 (B/L No.)</label>
+            <input type="text" name="tracking_or_bl_no" value="{{ order.tracking_or_bl_no }}">
+          </div>
+        </div>
+
+        <div>
+          <label class="field">流水说明 / 水单记录</label>
+          <textarea name="note" rows="2" placeholder="例如：水单已核对无误，到账 $12,950 尾款"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" type="button" onclick="closeFinanceModal()">取消</button>
+        <button class="btn primary" type="submit">保存更新</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ======================= 模态框: 编辑订单基础资料 ======================= -->
+<div id="modal-edit-order" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeEditOrderModal()">
+  <div class="modal-card" style="max-width:640px;">
+    <div class="modal-head">
+      <h3>编辑订单资料</h3>
+      <button class="btn-icon" type="button" onclick="closeEditOrderModal()">✕</button>
+    </div>
+    <form method="post" action="/orders/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="id" value="{{ order.id }}">
+      <input type="hidden" name="contact_id" value="{{ order.contact_id }}">
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">订单编号 / PI 号</label>
+            <input type="text" name="order_no" value="{{ order.order_no }}" required>
+          </div>
+          <div>
+            <label class="field">贸易术语</label>
+            <select name="trade_term">
+              <option value="FOB" {% if order.trade_term == 'FOB' %}selected{% endif %}>FOB</option>
+              <option value="CIF" {% if order.trade_term == 'CIF' %}selected{% endif %}>CIF</option>
+              <option value="CFR" {% if order.trade_term == 'CFR' %}selected{% endif %}>CFR</option>
+              <option value="DDP" {% if order.trade_term == 'DDP' %}selected{% endif %}>DDP</option>
+              <option value="DAP" {% if order.trade_term == 'DAP' %}selected{% endif %}>DAP</option>
+              <option value="EXW" {% if order.trade_term == 'EXW' %}selected{% endif %}>EXW</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="field">订单项目名称 <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="title" value="{{ order.title }}" required>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">预计交货期 (ETD)</label>
+            <input type="date" name="est_delivery_date" value="{{ order.est_delivery_date }}">
+          </div>
+          <div>
+            <label class="field">实际出运日期</label>
+            <input type="date" name="actual_delivery_date" value="{{ order.actual_delivery_date }}">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">装运港 (Port of Loading)</label>
+            <input type="text" name="loading_port" value="{{ order.loading_port or 'Shenzhen, China' }}">
+          </div>
+          <div>
+            <label class="field">目的港 / 目的国</label>
+            <input type="text" name="destination_port" value="{{ order.destination_port }}">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">提单号 / 快递追踪号</label>
+            <input type="text" name="tracking_or_bl_no" value="{{ order.tracking_or_bl_no }}">
+          </div>
+          <div>
+            <label class="field">承运人 / 船名航次 (Carrier)</label>
+            <input type="text" name="carrier" value="{{ order.carrier }}">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">形式发票日期 (PI Date)</label>
+            <input type="date" name="pi_date" value="{{ order.pi_date }}">
+          </div>
+          <div>
+            <label class="field">商业发票日期 (CI Date)</label>
+            <input type="date" name="ci_date" value="{{ order.ci_date }}">
+          </div>
+        </div>
+
+        <div>
+          <label class="field">包装外贸唛头 (Shipping Marks)</label>
+          <input type="text" name="shipping_marks" value="{{ order.shipping_marks or 'N/M' }}" placeholder="如: N/M 或 PO: PI-XXXX / MADE IN CHINA">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">关联货代渠道</label>
+            <select name="forwarder_quote_id">
+              <option value="">-- 无关联渠道 --</option>
+              {% for q in quotes %}
+              <option value="{{ q.id }}" {% if order.forwarder_quote_id == q.id %}selected{% endif %}>
+                {{ q.forwarder_name }} - {{ q.title }} ({{ q.channel_name }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="field">付款条款说明</label>
+            <input type="text" name="payment_term" value="{{ order.payment_term }}">
+          </div>
+        </div>
+
+        <div>
+          <label class="field">订单补充说明 / 客户生产要求</label>
+          <textarea name="note" rows="3">{{ order.note }}</textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" type="button" onclick="closeEditOrderModal()">取消</button>
+        <button class="btn primary" type="submit">保存更新</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ======================= 添加 / 编辑订单品项模态框 ======================= -->
+<div id="modal-item" class="modal-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="width:100%;max-width:720px;max-height:90vh;overflow-y:auto;background:var(--surface);margin:0;padding:24px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <h2 id="itemModalTitle" style="font-size:17px;margin:0;">添加订单产品项</h2>
+      <button type="button" onclick="closeAddItemModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-3);">&times;</button>
+    </div>
+
+    <form method="post" action="/orders/{{ order.id }}/items/save" id="itemForm">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="id" id="it_id" value="">
+      <input type="hidden" name="product_id" id="it_product_id" value="">
+
+      <!-- 从产品库快速选择 -->
+      <div style="background:rgba(120,120,120,0.05);padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:14px;border:1px dashed var(--border);">
+        <label class="field" style="font-weight:600;margin-bottom:4px;">⚡ 从基础产品库快速带入：</label>
+        <select id="quickProductSelect" style="width:100%;" onchange="onProductSelect(this.value)">
+          <option value="">-- 选择产品以自动带入规格、单价与装箱体积重量 --</option>
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label class="field">SKU / 型号</label>
+          <input type="text" name="sku" id="it_sku" placeholder="如: A1200-PRO" style="width:100%;">
+        </div>
+        <div style="grid-column: span 2;">
+          <label class="field" style="font-weight:600;">英文品名 (Description) <span style="color:red;">*</span></label>
+          <input type="text" name="name_en" id="it_name_en" placeholder="如: High Speed DC Motor" required style="width:100%;">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <label class="field">中文品名</label>
+          <input type="text" name="name_cn" id="it_name_cn" placeholder="如: 高速直流电机" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">海关编码 (HS Code)</label>
+          <input type="text" name="hs_code" id="it_hs_code" placeholder="如: 8501310000" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label class="field">规格参数 / 技术要求</label>
+        <input type="text" name="specs" id="it_specs" placeholder="如: 24V 3000RPM, Aluminum casing" style="width:100%;">
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;margin-bottom:12px;">
+        <div>
+          <label class="field" style="font-weight:600;">订购数量 <span style="color:red;">*</span></label>
+          <input type="number" step="1" name="quantity" id="it_quantity" value="100" min="1" required oninput="calcItemValues()" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">计量单位</label>
+          <input type="text" name="unit" id="it_unit" value="PCS" style="width:100%;">
+        </div>
+        <div>
+          <label class="field" style="font-weight:600;">外币单价 ({{ order.currency }}) <span style="color:red;">*</span></label>
+          <input type="number" step="0.01" name="unit_price" id="it_unit_price" value="0.00" required oninput="calcItemValues()" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">出厂单价 (CNY)</label>
+          <input type="number" step="0.01" name="unit_cost_cny" id="it_unit_cost" value="0.00" style="width:100%;">
+        </div>
+      </div>
+
+      <!-- 包装件重尺与小计 -->
+      <div class="card" style="padding:12px;background:rgba(120,120,120,0.03);margin-bottom:14px;border:1px solid var(--border);">
+        <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;">
+          <div>
+            <label class="field">总箱数 (CTNS)</label>
+            <input type="number" name="cartons" id="it_cartons" value="0" style="width:100%;">
+          </div>
+          <div>
+            <label class="field">总毛重 GW (KG)</label>
+            <input type="number" step="0.01" name="gross_weight_kg" id="it_gw" value="0.00" style="width:100%;">
+          </div>
+          <div>
+            <label class="field">总净重 NW (KG)</label>
+            <input type="number" step="0.01" name="net_weight_kg" id="it_nw" value="0.00" style="width:100%;">
+          </div>
+          <div>
+            <label class="field">总体积 (CBM)</label>
+            <input type="number" step="0.0001" name="cbm" id="it_cbm" value="0.0000" style="width:100%;font-weight:600;color:var(--accent);">
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+        <input type="checkbox" name="auto_sync" id="it_auto_sync" value="1" checked>
+        <label for="it_auto_sync" style="font-size:13px;cursor:pointer;">
+          保存后自动将明细总价更新至订单合同总额，并将明细采购总额更新至出厂成本
+        </label>
+      </div>
+
+      <div class="btn-row" style="justify-content:flex-end;">
+        <button class="btn" type="button" onclick="closeAddItemModal()">取消</button>
+        <button class="btn primary" type="submit" id="itemSubmitBtn">保存品项</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openStageModal() {
+  document.getElementById("modal-stage").style.display = "flex";
+}
+function closeStageModal() {
+  document.getElementById("modal-stage").style.display = "none";
+}
+
+function openFinanceModal() {
+  document.getElementById("modal-finance").style.display = "flex";
+}
+function closeFinanceModal() {
+  document.getElementById("modal-finance").style.display = "none";
+}
+
+function openEditOrderModal() {
+  document.getElementById("modal-edit-order").style.display = "flex";
+}
+function closeEditOrderModal() {
+  document.getElementById("modal-edit-order").style.display = "none";
+}
+
+var _loadedProducts = [];
+var _selectedProdMeta = null;
+
+function loadProductLibrary() {
+  fetch('/api/products')
+    .then(function(res) { return res.json(); })
+    .then(function(prods) {
+      _loadedProducts = prods || [];
+      var sel = document.getElementById('quickProductSelect');
+      sel.innerHTML = '<option value="">-- 选择产品以自动带入规格、单价与装箱体积重量 --</option>';
+      _loadedProducts.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.sku + ' - ' + p.name_en + ' ($' + p.price_usd_formatted + ')';
+        sel.appendChild(opt);
+      });
+    })
+    .catch(function(err) { console.error('加载产品库失败', err); });
+}
+
+function onProductSelect(pid) {
+  if (!pid) {
+    _selectedProdMeta = null;
+    return;
+  }
+  var p = _loadedProducts.find(function(item) { return item.id == pid; });
+  if (!p) return;
+  _selectedProdMeta = p;
+
+  document.getElementById('it_product_id').value = p.id;
+  document.getElementById('it_sku').value = p.sku || '';
+  document.getElementById('it_name_en').value = p.name_en || '';
+  document.getElementById('it_name_cn').value = p.name_cn || '';
+  document.getElementById('it_hs_code').value = p.hs_code || '';
+  document.getElementById('it_specs').value = p.specs || '';
+  document.getElementById('it_unit').value = p.unit || 'PCS';
+  document.getElementById('it_unit_price').value = p.price_usd || '0.00';
+  document.getElementById('it_unit_cost').value = p.cost_cny || '0.00';
+
+  calcItemValues();
+}
+
+function calcItemValues() {
+  var qty = parseFloat(document.getElementById('it_quantity').value) || 0;
+  if (_selectedProdMeta) {
+    var ctnQty = parseInt(_selectedProdMeta.carton_qty) || 1;
+    var ctnCount = Math.ceil(qty / ctnQty);
+    document.getElementById('it_cartons').value = ctnCount;
+
+    var cbm = parseFloat(_selectedProdMeta.carton_cbm) || 0;
+    var gw = parseFloat(_selectedProdMeta.carton_gw_kg) || 0;
+    var nw = parseFloat(_selectedProdMeta.carton_nw_kg) || 0;
+
+    document.getElementById('it_cbm').value = (ctnCount * cbm).toFixed(4);
+    document.getElementById('it_gw').value = (ctnCount * gw).toFixed(2);
+    document.getElementById('it_nw').value = (ctnCount * nw).toFixed(2);
+  }
+}
+
+function openAddItemModal() {
+  document.getElementById('itemForm').reset();
+  document.getElementById('it_id').value = '';
+  document.getElementById('it_product_id').value = '';
+  document.getElementById('it_unit').value = 'PCS';
+  document.getElementById('it_quantity').value = '100';
+  document.getElementById('it_cartons').value = '0';
+  document.getElementById('it_gw').value = '0.00';
+  document.getElementById('it_nw').value = '0.00';
+  document.getElementById('it_cbm').value = '0.0000';
+  document.getElementById('itemModalTitle').textContent = '添加订单产品项';
+  document.getElementById('itemSubmitBtn').textContent = '保存并加入订单';
+
+  loadProductLibrary();
+  document.getElementById('modal-item').style.display = 'flex';
+}
+
+function closeAddItemModal() {
+  document.getElementById('modal-item').style.display = 'none';
+}
+</script>

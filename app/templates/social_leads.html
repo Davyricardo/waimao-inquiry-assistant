@@ -1,0 +1,459 @@
+<div class="page-head">
+  <div>
+    <h1>社媒外贸获客开发</h1>
+    <p class="sub">LinkedIn、WhatsApp、Facebook 等多渠道线索沉淀、智能破冰话术与商机转化闭环</p>
+  </div>
+  <div class="btn-row">
+    <a href="/social/export{% if current_platform %}?platform={{ current_platform }}{% endif %}" class="btn sm" download>导出潜客 CSV</a>
+    <button class="btn primary sm" onclick="openLeadModal()">+ 录入新潜客线索</button>
+  </div>
+</div>
+
+<!-- 顶部统计卡片 -->
+<div class="metrics" style="margin-bottom:18px">
+  <div class="metric">
+    <div class="label">潜客线索总数</div>
+    <div class="value">{{ summary.total_leads }}</div>
+    <div class="foot">全渠道沉淀潜客</div>
+  </div>
+  <div class="metric {% if summary.due_today > 0 %}wa{% endif %}">
+    <div class="label">今日待跟进</div>
+    <div class="value">{{ summary.due_today }}</div>
+    <div class="foot">今日需主动触达</div>
+  </div>
+  <div class="metric {% if summary.overdue > 0 %}hi{% endif %}">
+    <div class="label">逾期未跟进</div>
+    <div class="value">{{ summary.overdue }}</div>
+    <div class="foot">超期未联络警告</div>
+  </div>
+  <div class="metric ok">
+    <div class="label">已转化为客户</div>
+    <div class="value">{{ summary.converted }}</div>
+    <div class="foot">转化率 {{ summary.conversion_rate }}%</div>
+  </div>
+</div>
+
+<!-- 筛选与视图切换 -->
+<div class="card" style="margin-bottom:18px">
+  <form method="GET" action="/social">
+    <input type="hidden" name="view" value="{{ view_mode }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr)) minmax(200px,2fr) auto;gap:12px;align-items:end;">
+      <div>
+        <label class="field">来源渠道</label>
+        <select name="platform" class="select" onchange="this.form.submit()">
+          <option value="">全渠道</option>
+          <option value="linkedin" {% if current_platform == "linkedin" %}selected{% endif %}>💼 LinkedIn</option>
+          <option value="whatsapp" {% if current_platform == "whatsapp" %}selected{% endif %}>💬 WhatsApp</option>
+          <option value="facebook" {% if current_platform == "facebook" %}selected{% endif %}>👥 Facebook</option>
+          <option value="instagram" {% if current_platform == "instagram" %}selected{% endif %}>📸 Instagram</option>
+          <option value="tiktok" {% if current_platform == "tiktok" %}selected{% endif %}>🎵 TikTok</option>
+          <option value="google" {% if current_platform == "google" %}selected{% endif %}>🌐 Google/官网</option>
+          <option value="exhibition" {% if current_platform == "exhibition" %}selected{% endif %}>🏷️ 展会名片</option>
+          <option value="other" {% if current_platform == "other" %}selected{% endif %}>📌 其他渠道</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">流转阶段</label>
+        <select name="stage" class="select" onchange="this.form.submit()">
+          <option value="">全部阶段</option>
+          <option value="discovered" {% if current_stage == "discovered" %}selected{% endif %}>新发掘/待破冰</option>
+          <option value="connected" {% if current_stage == "connected" %}selected{% endif %}>已建联/已加好友</option>
+          <option value="chatted" {% if current_stage == "chatted" %}selected{% endif %}>沟通中/已破冰</option>
+          <option value="catalog_sent" {% if current_stage == "catalog_sent" %}selected{% endif %}>已推介图册/方案</option>
+          <option value="converted" {% if current_stage == "converted" %}selected{% endif %}>已转为正式客户</option>
+          <option value="unqualified" {% if current_stage == "unqualified" %}selected{% endif %}>无效/暂无意向</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">跟进日程</label>
+        <select name="followup_status" class="select" onchange="this.form.submit()">
+          <option value="">全部日程</option>
+          <option value="due_today" {% if current_followup == "due_today" %}selected{% endif %}>⏰ 今日待跟进</option>
+          <option value="overdue" {% if current_followup == "overdue" %}selected{% endif %}>⚠️ 逾期未跟进</option>
+          <option value="upcoming" {% if current_followup == "upcoming" %}selected{% endif %}>📅 未来待跟进</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">关键词检索</label>
+        <input type="text" name="search" class="input" placeholder="姓名/公司/国家/WhatsApp..." value="{{ search_kw }}">
+      </div>
+      <div style="display:flex;gap:6px;align-items:flex-end">
+        <button type="submit" class="btn">检索</button>
+        {% if search_kw or current_platform or current_stage or current_followup %}
+          <a href="/social?view={{ view_mode }}" class="btn">重置</a>
+        {% endif %}
+        <a href="/social?view=kanban{% if current_platform %}&platform={{ current_platform }}{% endif %}{% if current_stage %}&stage={{ current_stage }}{% endif %}{% if current_followup %}&followup_status={{ current_followup }}{% endif %}" class="btn {% if view_mode == 'kanban' %}primary{% endif %}">漏斗看板</a>
+        <a href="/social?view=list{% if current_platform %}&platform={{ current_platform }}{% endif %}{% if current_stage %}&stage={{ current_stage }}{% endif %}{% if current_followup %}&followup_status={{ current_followup }}{% endif %}" class="btn {% if view_mode == 'list' %}primary{% endif %}">详细列表</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+  <!-- 视图内容区域 -->
+  {% if view_mode == "kanban" %}
+    <!-- 漏斗阶段看板视图 -->
+    <div class="kanban-board">
+      {% for stage_key, col in kanban_columns.items() %}
+        <div class="kanban-col">
+          <div class="kanban-header">
+            <div class="kanban-title">
+              <span class="stage-indicator" style="background: {{ col.stage_info.color }}"></span>
+              <strong>{{ col.stage_info.name }}</strong>
+            </div>
+            <span class="badge badge-secondary">{{ col.count }}</span>
+          </div>
+
+          <div class="kanban-body">
+            {% if col.leads %}
+              {% for lead in col.leads %}
+                <div class="kanban-card">
+                  <div class="kanban-card-top flex-between">
+                    <span class="badge {{ lead.platform_info.badge_class }}">
+                      {{ lead.platform_info.icon }} {{ lead.platform_info.name }}
+                    </span>
+                    <span class="rating-stars">{{ lead.rating_stars }}</span>
+                  </div>
+
+                  <div class="kanban-card-title">
+                    <a href="/social/{{ lead.id }}" class="card-link font-weight-bold">
+                      {{ lead.name }}
+                    </a>
+                  </div>
+
+                  <div class="kanban-card-sub text-muted">
+                    {{ lead.company or '公司未填' }}
+                    {% if lead.position %} · {{ lead.position }}{% endif %}
+                  </div>
+
+                  {% if lead.country %}
+                    <div class="kanban-card-meta mt-1">
+                      {{{ lead.time_badge_html }}}
+                    </div>
+                  {% endif %}
+
+                  {% if lead.next_followup_date and lead.stage != "converted" and lead.stage != "unqualified" %}
+                    <div class="kanban-card-meta mt-1">
+                      <span class="badge badge-{{ lead.followup_color }}">{{ lead.followup_badge }}</span>
+                    </div>
+                  {% endif %}
+
+                  <div class="kanban-card-footer flex-between mt-2 pt-2 border-top">
+                    {% if lead.whatsapp_formatted %}
+                      <a href="{{ lead.wa_click_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-whatsapp" title="免存直接发起 WhatsApp 对话">
+                        💬 WhatsApp
+                      </a>
+                    {% else %}
+                      <span class="text-muted text-xs">无号码</span>
+                    {% endif %}
+
+                    <div class="btn-group">
+                      <a href="/social/{{ lead.id }}" class="btn btn-xs btn-outline">触达/话术</a>
+                      {% if lead.stage != "converted" %}
+                        <button class="btn btn-xs btn-outline-success" onclick="openConvertModal({{ lead.id }}, '{{ lead.name }}', '{{ lead.email }}')">转客户</button>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="empty-col text-muted text-center py-4">暂无线索</div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <!-- 明细表格列表视图 -->
+    <div class="table-responsive bg-white rounded shadow-sm">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th style="width: 50px;">ID</th>
+            <th>潜客姓名 / 公司</th>
+            <th>国家/当地时间</th>
+            <th>来源平台</th>
+            <th>WhatsApp / 联系方式</th>
+            <th>流转阶段</th>
+            <th>意向星级</th>
+            <th>跟进日程</th>
+            <th style="width: 170px;" class="text-right">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if leads %}
+            {% for lead in leads %}
+              <tr>
+                <td>{{ lead.id }}</td>
+                <td>
+                  <div class="font-weight-bold">
+                    <a href="/social/{{ lead.id }}">{{ lead.name }}</a>
+                  </div>
+                  <div class="text-muted text-sm">
+                    {{ lead.company or '—' }}
+                    {% if lead.position %}<span class="badge badge-light ml-1">{{ lead.position }}</span>{% endif %}
+                  </div>
+                  {% if lead.industry_or_niche %}
+                    <div class="text-xs text-secondary mt-1">行业: {{ lead.industry_or_niche }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if lead.country %}
+                    <div>{{ lead.country }}</div>
+                    <div class="mt-1">{{{ lead.time_badge_html }}}</div>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="badge {{ lead.platform_info.badge_class }}">
+                    {{ lead.platform_info.icon }} {{ lead.platform_info.name }}
+                  </span>
+                  {% if lead.linkedin_url %}
+                    <div class="mt-1">
+                      <a href="{{ lead.linkedin_url }}" target="_blank" rel="noopener noreferrer" class="text-xs text-primary">🔗 主页</a>
+                    </div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if lead.whatsapp_formatted %}
+                    <div class="d-flex align-items-center gap-1">
+                      <span class="font-weight-bold text-sm">{{ lead.whatsapp }}</span>
+                      <a href="{{ lead.wa_click_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-xs btn-whatsapp" title="免存直接发起 WhatsApp 聊天">
+                        💬 直聊
+                      </a>
+                    </div>
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                  {% if lead.email %}
+                    <div class="text-xs text-muted mt-1">✉️ {{ lead.email }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="badge" style="background: {{ lead.stage_info.bg }}; color: {{ lead.stage_info.color }}; border: 1px solid {{ lead.stage_info.color }};">
+                    {{ lead.stage_info.name }}
+                  </span>
+                  {% if lead.contact_id %}
+                    <div class="mt-1">
+                      <a href="/contacts?search={{ lead.email }}" class="text-xs text-success">已转客户 #{{ lead.contact_id }}</a>
+                    </div>
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="rating-stars">{{ lead.rating_stars }}</span>
+                </td>
+                <td>
+                  <span class="badge badge-{{ lead.followup_color }}">{{ lead.followup_badge }}</span>
+                </td>
+                <td class="text-right">
+                  <div class="btn-group">
+                    <a href="/social/{{ lead.id }}" class="btn btn-xs btn-outline">触达详情</a>
+                    {% if lead.stage != "converted" %}
+                      <button class="btn btn-xs btn-outline-success" onclick="openConvertModal({{ lead.id }}, '{{ lead.name }}', '{{ lead.email }}')">转客户</button>
+                    {% endif %}
+                    <form method="POST" action="/social/{{ lead.id }}/delete" style="display:inline;" onsubmit="return confirm('确定要删除潜客「{{ lead.name }}」吗？此操作无法撤销。')">
+                      <button type="submit" class="btn btn-xs btn-outline-danger">删</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="9" class="text-center py-5 text-muted">
+                暂无符合条件的潜客线索，点击上方「+ 录入新潜客线索」开始拓展海外买家！
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+<!-- 模态弹窗：新建 / 编辑潜客线索（对齐客户管理模块标准） -->
+<div id="leadModal" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeLeadModal()">
+  <div class="modal-card" style="max-width:620px;">
+    <div class="modal-head">
+      <h3 id="leadModalTitle">录入社媒潜客线索</h3>
+      <button type="button" class="modal-close" onclick="closeLeadModal()">&times;</button>
+    </div>
+    <form id="leadForm" method="POST" action="/social/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="lead_id" id="lead_id" value="">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">潜客联系人姓名 <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="name" id="field_name" required placeholder="如：Michael Schmidt / David Miller">
+        </div>
+        <div>
+          <label class="field">所属公司名称</label>
+          <input type="text" name="company" id="field_company" placeholder="如：Schmidt Industrial GmbH">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">职位 / 角色</label>
+          <input type="text" name="position" id="field_position" placeholder="如：Purchasing Manager / CEO">
+        </div>
+        <div>
+          <label class="field">国家 / 地区 (自动识别时区)</label>
+          <input type="text" name="country" id="field_country" placeholder="如：Germany / 美国 / 墨西哥 / 迪拜">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">来源渠道</label>
+          <select name="source_platform" id="field_source_platform">
+            <option value="linkedin">💼 LinkedIn (领英)</option>
+            <option value="whatsapp">💬 WhatsApp (买家号/群组)</option>
+            <option value="facebook">👥 Facebook (脸书群组/主页)</option>
+            <option value="instagram">📸 Instagram</option>
+            <option value="tiktok">🎵 TikTok (海外抖音)</option>
+            <option value="google">🌐 Google / 官方独立站</option>
+            <option value="exhibition">🏷️ 广交会 / 海外展会名片</option>
+            <option value="other">📌 其他渠道</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">WhatsApp / 手机号码</label>
+          <input type="text" name="whatsapp" id="field_whatsapp" placeholder="如：+49 151 12345678">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">LinkedIn 个人/公司主页 URL</label>
+          <input type="url" name="linkedin_url" id="field_linkedin_url" placeholder="https://www.linkedin.com/in/username">
+        </div>
+        <div>
+          <label class="field">电子邮箱 (如有)</label>
+          <input type="email" name="email" id="field_email" placeholder="buyer@example.com">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">主营行业 / 经营品类</label>
+          <input type="text" name="industry_or_niche" id="field_industry_or_niche" placeholder="如：Hardware Tools, Solar Energy">
+        </div>
+        <div>
+          <label class="field">公司官网网址</label>
+          <input type="text" name="website" id="field_website" placeholder="www.company.com">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">流转阶段</label>
+          <select name="stage" id="field_stage">
+            <option value="discovered">新发掘/待破冰</option>
+            <option value="connected">已建联/已加好友</option>
+            <option value="chatted">沟通中/已破冰</option>
+            <option value="catalog_sent">已推介图册/方案</option>
+            <option value="converted">已转为正式客户</option>
+            <option value="unqualified">无效/暂无意向</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">意向度星级</label>
+          <select name="rating" id="field_rating">
+            <option value="5">★★★★★ 5星 (核心采购商)</option>
+            <option value="4">★★★★☆ 4星 (对口商户)</option>
+            <option value="3" selected>★★★☆☆ 3星 (普通商机)</option>
+            <option value="2">★★☆☆☆ 2星 (小型零售)</option>
+            <option value="1">★☆☆☆☆ 1星 (意向弱)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">下次跟进提醒日期</label>
+          <input type="date" name="next_followup_date" id="field_next_followup_date" value="{{ today_str }}">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="field">需求备忘 / 客户痛点分析</label>
+        <textarea name="notes" id="field_notes" rows="3" placeholder="记录买家的采购诉求、竞品品牌、定制需求或任何背景要点..."></textarea>
+      </div>
+
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button type="button" class="btn" onclick="closeLeadModal()">取消</button>
+        <button type="submit" class="btn primary">保存潜客线索</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 模态弹窗：一键转为正式客户（对齐客户管理模块标准） -->
+<div id="convertModal" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeConvertModal()">
+  <div class="modal-card" style="max-width:480px;">
+    <div class="modal-head">
+      <h3>🎉 转化为 CRM 正式客户</h3>
+      <button type="button" class="modal-close" onclick="closeConvertModal()">&times;</button>
+    </div>
+    <form id="convertForm" method="POST" action="">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <p style="font-size:12.5px;color:var(--text-2);line-height:1.6;margin-bottom:14px;">
+        转化后，潜客档案、社媒主页、WhatsApp 与触达流水将自动注入「客户管理」库，并支持直接创建销售订单与生成形式发票（PI）。
+      </p>
+      <div class="form-row">
+        <label class="field">潜客姓名</label>
+        <input type="text" id="convert_name_display" disabled style="background:var(--surface-2);">
+      </div>
+      <div class="form-row">
+        <label class="field">客户有效电子邮箱 <span style="color:var(--danger)">*</span></label>
+        <input type="email" name="email" id="convert_email_input" required placeholder="name@company.com">
+        <div class="hint" style="margin-top:4px;">外贸 CRM 客户以邮箱作为唯一识别凭据。如现有客户已存在该邮箱，将自动合并并补充社媒信息。</div>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button type="button" class="btn" onclick="closeConvertModal()">取消</button>
+        <button type="submit" class="btn primary">确认转入客户库</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openLeadModal(lead) {
+  document.getElementById('leadModal').style.display = 'flex';
+  if (lead) {
+    document.getElementById('leadModalTitle').innerText = '编辑潜客线索: ' + lead.name;
+    document.getElementById('lead_id').value = lead.id;
+    document.getElementById('field_name').value = lead.name || '';
+    document.getElementById('field_company').value = lead.company || '';
+    document.getElementById('field_position').value = lead.position || '';
+    document.getElementById('field_country').value = lead.country || '';
+    document.getElementById('field_source_platform').value = lead.source_platform || 'linkedin';
+    document.getElementById('field_whatsapp').value = lead.whatsapp || '';
+    document.getElementById('field_linkedin_url').value = lead.linkedin_url || '';
+    document.getElementById('field_email').value = lead.email || '';
+    document.getElementById('field_industry_or_niche').value = lead.industry_or_niche || '';
+    document.getElementById('field_website').value = lead.website || '';
+    document.getElementById('field_stage').value = lead.stage || 'discovered';
+    document.getElementById('field_rating').value = lead.rating || 3;
+    document.getElementById('field_next_followup_date').value = lead.next_followup_date || '';
+    document.getElementById('field_notes').value = lead.notes || '';
+  } else {
+    document.getElementById('leadModalTitle').innerText = '录入社媒潜客线索';
+    document.getElementById('lead_id').value = '';
+    document.getElementById('leadForm').reset();
+  }
+}
+
+function closeLeadModal() {
+  document.getElementById('leadModal').style.display = 'none';
+}
+
+function openConvertModal(leadId, leadName, leadEmail) {
+  document.getElementById('convertModal').style.display = 'flex';
+  document.getElementById('convertForm').action = '/social/' + leadId + '/convert';
+  document.getElementById('convert_name_display').value = leadName;
+  document.getElementById('convert_email_input').value = leadEmail || '';
+}
+
+function closeConvertModal() {
+  document.getElementById('convertModal').style.display = 'none';
+}
+</script>

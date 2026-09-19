@@ -1,0 +1,406 @@
+<div class="page-head">
+  <div>
+    <h1>订单管理</h1>
+    <p class="sub">外贸订单全生命周期流转、交期预警与利润即时核算</p>
+  </div>
+  <div class="btn-row">
+    <a class="btn sm {% if view == 'kanban' %}primary{% endif %}" href="/orders?view=kanban">📋 泳道看板</a>
+    <a class="btn sm {% if view == 'list' %}primary{% endif %}" href="/orders?view=list">📜 订单列表</a>
+    <button class="btn primary sm" type="button" onclick="openNewOrderModal()">+ 新建订单</button>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<!-- ======================= 看板视图 (KANBAN) ======================= -->
+{% if view == 'kanban' %}
+<!-- 看板汇总卡 -->
+<div class="card" style="margin-bottom:16px;padding:12px 18px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+    <div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">
+      <div>
+        <span style="font-size:12px;color:var(--text-3);">在手订单数</span>
+        <div style="font-size:18px;font-weight:700;color:var(--text);">{{ kanban.total_orders }} 笔</div>
+      </div>
+      <div style="width:1px;height:24px;background:var(--border);"></div>
+      <div>
+        <span style="font-size:12px;color:var(--text-3);">订单总金额 (折合)</span>
+        <div style="font-size:18px;font-weight:700;color:var(--accent);">¥{{ kanban.total_revenue_cny }}</div>
+      </div>
+      <div style="width:1px;height:24px;background:var(--border);"></div>
+      <div>
+        <span style="font-size:12px;color:var(--text-3);">预估总净利润</span>
+        <div style="font-size:18px;font-weight:700;color:var(--ok);">¥{{ kanban.total_profit_cny }}</div>
+      </div>
+    </div>
+    <div>
+      <span style="font-size:12px;color:var(--text-2);">💡 提示：点击卡片可查看详情；点击底部按钮可一键推进流转节点</span>
+    </div>
+  </div>
+</div>
+
+<!-- 8 阶段泳道看板 -->
+<div class="kanban-board">
+  {% for col in kanban.columns %}
+  <div class="kanban-col">
+    <div class="kanban-col-head">
+      <div class="kanban-col-title">
+        <span>{{ col.info.icon }}</span>
+        <span>{{ col.info.name }}</span>
+        <span class="kanban-col-count">{{ col.count }}</span>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:var(--text-2);">
+        ${{ col.amount_sum_formatted }}
+      </div>
+    </div>
+
+    <div class="kanban-col-body">
+      {% for od in col.orders %}
+      <div class="kanban-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <span class="kanban-card-no">{{ od.order_no }}</span>
+          <div>{{{ od.etd_tag }}}</div>
+        </div>
+
+        <div class="kanban-card-title">
+          <a href="/orders/{{ od.id }}">{{ od.title }}</a>
+        </div>
+
+        <div class="kanban-card-customer">
+          <span>👤</span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ od.customer_name or od.customer_company }} ({{ od.customer_country or '-' }})</span>
+        </div>
+
+        <div class="kanban-card-finance">
+          <div>
+            <div class="kanban-card-amount">{{ od.currency_symbol }}{{ od.total_amount_formatted }}</div>
+            <div style="font-size:10px;color:var(--text-3);">实收 {{ od.received_pct }}%</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="kanban-card-profit">+¥{{ od.net_profit_cny }}</div>
+            <div style="font-size:10px;color:var(--text-3);">毛利 {{ od.profit_margin }}%</div>
+          </div>
+        </div>
+
+        <div class="kanban-card-foot">
+          <a class="btn sm" href="/orders/{{ od.id }}" style="padding:2px 8px;font-size:11.5px;">详情</a>
+          {% if od.next_stage %}
+          <form method="post" action="/orders/{{ od.id }}/stage" style="margin:0;">
+            <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+            <input type="hidden" name="stage" value="{{ od.next_stage }}">
+            <button class="btn sm primary" type="submit" style="padding:2px 8px;font-size:11px;" title="{{ od.next_action }}">
+              ➔ {{ od.next_action }}
+            </button>
+          </form>
+          {% else %}
+          <span style="font-size:11px;color:var(--ok);">✅ 订单已完成</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+
+      {% if col.count == 0 %}
+      <div style="text-align:center;padding:24px 10px;color:var(--text-3);font-size:12px;">
+        暂无订单
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+
+<!-- ======================= 列表视图 (LIST) ======================= -->
+{% if view == 'list' %}
+<div class="card">
+  <form method="get" action="/orders">
+    <input type="hidden" name="view" value="list">
+    <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end;">
+      <div>
+        <label class="field">关键词检索</label>
+        <input type="text" name="q" value="{{ f.q }}" placeholder="订单编号 / 项目名 / 客户名 / 目的港">
+      </div>
+      <div>
+        <label class="field">流转阶段</label>
+        <select name="stage">
+          <option value="">全部阶段</option>
+          <option value="draft" {% if f.stage == 'draft' %}selected{% endif %}>📝 洽谈起草</option>
+          <option value="pi_confirmed" {% if f.stage == 'pi_confirmed' %}selected{% endif %}>📄 PI已确认</option>
+          <option value="deposit_received" {% if f.stage == 'deposit_received' %}selected{% endif %}>💰 定金到账</option>
+          <option value="in_production" {% if f.stage == 'in_production' %}selected{% endif %}>🏭 工厂排产中</option>
+          <option value="qc_passed" {% if f.stage == 'qc_passed' %}selected{% endif %}>✅ 验货完成</option>
+          <option value="balance_received" {% if f.stage == 'balance_received' %}selected{% endif %}>💳 尾款已收齐</option>
+          <option value="shipping" {% if f.stage == 'shipping' %}selected{% endif %}>🚢 订舱出运中</option>
+          <option value="completed" {% if f.stage == 'completed' %}selected{% endif %}>🏆 履约完成</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">所属客户</label>
+        <select name="cid">
+          <option value="">全部客户</option>
+          {% for c in contacts %}
+          <option value="{{ c.id }}" {% if f.cid == c.id %}selected{% endif %}>{{ c.name or c.email }} ({{ c.company or c.country }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn primary" type="submit">筛选</button>
+        {% if f.q or f.stage or f.cid %}
+        <a class="btn" href="/orders?view=list">重置</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if orders %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>订单编号</th>
+          <th>项目名称</th>
+          <th>客户 / 国家</th>
+          <th>当前阶段</th>
+          <th>贸易条款</th>
+          <th style="text-align:right;">订单总额</th>
+          <th style="text-align:right;">已收款项</th>
+          <th>交期状态 (ETD)</th>
+          <th style="text-align:right;">预估净利润</th>
+          <th style="text-align:right;width:120px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for od in orders %}
+        <tr>
+          <td style="font-weight:700;font-size:13px;color:var(--accent);">
+            <a href="/orders/{{ od.id }}">{{ od.order_no }}</a>
+          </td>
+          <td>
+            <div style="font-weight:600;font-size:13.5px;color:var(--text);">
+              <a href="/orders/{{ od.id }}">{{ od.title }}</a>
+            </div>
+            {% if od.destination_port %}
+            <div style="font-size:11px;color:var(--text-3);">目的港: {{ od.destination_port }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <div style="font-size:13px;font-weight:500;">
+              <a href="/contacts/{{ od.contact_id }}">{{ od.customer_name or od.customer_email }}</a>
+            </div>
+            <div style="font-size:11px;color:var(--text-3);">{{ od.customer_company or od.customer_country or '-' }}</div>
+          </td>
+          <td>
+            {{{ od.stage_badge }}}
+          </td>
+          <td style="font-size:12px;font-weight:600;">
+            {{ od.trade_term }}
+          </td>
+          <td style="text-align:right;font-size:13.5px;font-weight:700;color:var(--text);">
+            {{ od.currency_symbol }}{{ od.total_amount_formatted }}
+          </td>
+          <td style="text-align:right;font-size:12.5px;">
+            <div>{{ od.currency_symbol }}{{ od.received_total_formatted }}</div>
+            <div style="font-size:10.5px;color:var(--text-3);">占比 {{ od.received_pct }}%</div>
+          </td>
+          <td>
+            {{{ od.etd_tag }}}
+            <div style="font-size:10.5px;color:var(--text-3);margin-top:2px;">{{ od.etd_display }}</div>
+          </td>
+          <td style="text-align:right;">
+            <div style="font-size:13px;font-weight:700;color:var(--ok);">+¥{{ od.net_profit_cny }}</div>
+            <div style="font-size:10.5px;color:var(--text-3);">毛利率 {{ od.profit_margin }}%</div>
+          </td>
+          <td style="text-align:right;white-space:nowrap;">
+            <a class="btn sm" href="/orders/{{ od.id }}">详情</a>
+            <form method="post" action="/orders/{{ od.id }}/delete" style="display:inline;" onsubmit="return confirm('确定彻底删除订单【{{ od.order_no }}】吗？');">
+              <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+              <button class="btn sm danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:40px 20px;color:var(--text-2);">
+    没有找到符合条件的订单
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+
+<!-- ======================= 模态框: 新建/编辑订单 ======================= -->
+<div id="modal-order" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeOrderModal()">
+  <div class="modal-card" style="max-width:640px;">
+    <div class="modal-head">
+      <h3 id="modal-order-title">新建外贸订单</h3>
+      <button class="btn-icon" type="button" onclick="closeOrderModal()">✕</button>
+    </div>
+    <form method="post" action="/orders/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="id" id="order-id" value="">
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">关联成交客户 <span style="color:var(--danger)">*</span></label>
+            <select name="contact_id" id="order-contact" required>
+              <option value="">-- 请选择客户 --</option>
+              {% for c in contacts %}
+              <option value="{{ c.id }}">{{ c.name or c.email }} ({{ c.company or c.country }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="field">订单编号 / PI 号</label>
+            <input type="text" name="order_no" id="order-no" placeholder="留空将自动生成，如 PI-20260919-001">
+          </div>
+        </div>
+
+        <div>
+          <label class="field">订单项目名称 / 货品概要 <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="title" id="order-title" required placeholder="例如：德国Klaus公司500台伺服电机采购单">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">流转阶段</label>
+            <select name="stage" id="order-stage">
+              <option value="draft">📝 洽谈起草</option>
+              <option value="pi_confirmed">📄 PI已确认</option>
+              <option value="deposit_received">💰 定金到账</option>
+              <option value="in_production">🏭 工厂排产中</option>
+              <option value="qc_passed">✅ 验货完成</option>
+              <option value="balance_received">💳 尾款已收齐</option>
+              <option value="shipping">🚢 订舱出运中</option>
+              <option value="completed">🏆 履约完成</option>
+            </select>
+          </div>
+          <div>
+            <label class="field">贸易术语</label>
+            <select name="trade_term" id="order-trade-term">
+              <option value="FOB">FOB (离岸价)</option>
+              <option value="CIF">CIF (到岸成本加保费运费)</option>
+              <option value="CFR">CFR (成本加运费)</option>
+              <option value="DDP">DDP (完税后交货·双清包税)</option>
+              <option value="DAP">DAP (目的地交货)</option>
+              <option value="EXW">EXW (工厂交货)</option>
+            </select>
+          </div>
+          <div>
+            <label class="field">结算币种</label>
+            <select name="currency" id="order-currency">
+              <option value="USD">$ USD (美元)</option>
+              <option value="EUR">€ EUR (欧元)</option>
+              <option value="CNY">¥ CNY (人民币)</option>
+              <option value="GBP">£ GBP (英镑)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">订单总金额 <span style="color:var(--danger)">*</span></label>
+            <input type="number" step="0.01" name="total_amount" id="order-total" required placeholder="例如：18500">
+          </div>
+          <div>
+            <label class="field">已收定金金额</label>
+            <input type="number" step="0.01" name="deposit_amount" id="order-deposit" placeholder="例如：5550">
+          </div>
+          <div>
+            <label class="field">已收尾款金额</label>
+            <input type="number" step="0.01" name="balance_amount" id="order-balance" placeholder="例如：12950">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">工厂采购成本 (¥ CNY)</label>
+            <input type="number" step="0.01" name="factory_cost" id="order-factory" placeholder="工厂生产大货成本">
+          </div>
+          <div>
+            <label class="field">预计货代运费 (¥ CNY)</label>
+            <input type="number" step="0.01" name="shipping_cost" id="order-shipping" placeholder="物流运费支出">
+          </div>
+          <div>
+            <label class="field">杂费/报关成本 (¥ CNY)</label>
+            <input type="number" step="0.01" name="other_cost" id="order-other" placeholder="内陆拖车/报关费">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">预计交货期 (ETD)</label>
+            <input type="date" name="est_delivery_date" id="order-etd">
+          </div>
+          <div>
+            <label class="field">目的港 / 目的国家</label>
+            <input type="text" name="destination_port" id="order-port" placeholder="例如：德国汉堡港 / 洛杉矶">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">关联货代渠道报价</label>
+            <select name="forwarder_quote_id" id="order-fwd-quote">
+              <option value="">-- 可选：关联货运代理报价 --</option>
+              {% for q in quotes %}
+              <option value="{{ q.id }}">{{ q.forwarder_name }} - {{ q.title }} ({{ q.channel_name }} ➔ {{ q.destination }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="field">提单号 / 国际单号 (B/L No.)</label>
+            <input type="text" name="tracking_or_bl_no" id="order-bl" placeholder="开船或寄出后填入提单号">
+          </div>
+        </div>
+
+        <div>
+          <label class="field">付款条款说明</label>
+          <input type="text" name="payment_term" id="order-payment-term" value="30% T/T Deposit, 70% Balance before shipment" placeholder="例如：30% T/T Deposit, 70% Balance against B/L copy">
+        </div>
+
+        <div>
+          <label class="field">订单补充说明 / 客户验货要求</label>
+          <textarea name="note" id="order-note" rows="2" placeholder="客户电压规格、包装打托要求、唛头要求等"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" type="button" onclick="closeOrderModal()">取消</button>
+        <button class="btn primary" type="submit">保存订单</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openNewOrderModal() {
+  document.getElementById("modal-order-title").innerText = "新建外贸订单";
+  document.getElementById("order-id").value = "";
+  document.getElementById("order-no").value = "";
+  document.getElementById("order-title").value = "";
+  document.getElementById("order-stage").value = "draft";
+  document.getElementById("order-trade-term").value = "FOB";
+  document.getElementById("order-currency").value = "USD";
+  document.getElementById("order-total").value = "";
+  document.getElementById("order-deposit").value = "";
+  document.getElementById("order-balance").value = "";
+  document.getElementById("order-factory").value = "";
+  document.getElementById("order-shipping").value = "";
+  document.getElementById("order-other").value = "";
+  document.getElementById("order-etd").value = "";
+  document.getElementById("order-port").value = "";
+  document.getElementById("order-bl").value = "";
+  document.getElementById("order-note").value = "";
+  document.getElementById("modal-order").style.display = "flex";
+}
+
+function closeOrderModal() {
+  document.getElementById("modal-order").style.display = "none";
+}
+</script>

@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>{{ doc_title }} - {{ doc_no }} · 外贸询盘助手</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* 单证页面专用排版与打印样式 */
+    body {
+      background: #eef2f6;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #1e293b;
+    }
+    .doc-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #0f172a;
+      color: #fff;
+      padding: 10px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+    }
+    .doc-paper-container {
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px 48px;
+    }
+    .doc-paper {
+      background: #ffffff;
+      width: 210mm;
+      min-height: 297mm;
+      padding: 18mm 16mm 20mm;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+      box-sizing: border-box;
+      position: relative;
+    }
+    .doc-head-company {
+      text-align: center;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .doc-company-en {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: #0f172a;
+      text-transform: uppercase;
+    }
+    .doc-company-cn {
+      font-size: 14px;
+      color: #475569;
+      margin-top: 2px;
+    }
+    .doc-company-contact {
+      font-size: 11.5px;
+      color: #64748b;
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .doc-title-banner {
+      text-align: center;
+      margin: 14px 0 18px;
+    }
+    .doc-title-banner h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      color: #0f172a;
+      text-transform: uppercase;
+    }
+    .doc-title-banner .doc-subtitle {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 3px;
+    }
+    .doc-meta-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 16px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .doc-box {
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 10px 12px;
+    }
+    .doc-box-title {
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 11px;
+      color: #475569;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+    }
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+      margin-bottom: 14px;
+    }
+    .doc-table th {
+      background: #f1f5f9;
+      color: #1e293b;
+      border: 1px solid #cbd5e1;
+      padding: 7px 8px;
+      font-weight: 700;
+      text-align: left;
+    }
+    .doc-table td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      color: #334155;
+    }
+    .doc-table tr:nth-child(even) td {
+      background: #fafafa;
+    }
+    .doc-amount-words {
+      border: 1px dashed #94a3b8;
+      background: #f8fafc;
+      padding: 8px 12px;
+      font-size: 11.5px;
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+    .doc-bank-box {
+      border: 1px solid #0f172a;
+      padding: 10px 14px;
+      font-size: 11.5px;
+      line-height: 1.6;
+      margin-bottom: 16px;
+      background: #f8fafc;
+    }
+    .doc-bank-title {
+      font-weight: 700;
+      font-size: 12px;
+      color: #0f172a;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    .doc-sign-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+      margin-top: 24px;
+      page-break-inside: avoid;
+    }
+    .doc-sign-box {
+      border-top: 1px solid #64748b;
+      padding-top: 8px;
+      font-size: 12px;
+      color: #334155;
+    }
+    .doc-stamp-placeholder {
+      height: 60px;
+      display: flex;
+      align-items: flex-end;
+      color: #94a3b8;
+      font-size: 11px;
+      font-style: italic;
+    }
+
+    /* 打印优化 */
+    @media print {
+      body {
+        background: #fff !important;
+        color: #000 !important;
+      }
+      .doc-toolbar {
+        display: none !important;
+      }
+      .doc-paper-container {
+        padding: 0 !important;
+      }
+      .doc-paper {
+        box-shadow: none !important;
+        padding: 10mm 10mm 15mm !important;
+        width: 100% !important;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 12mm 10mm;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<!-- 顶部工具栏（打印时隐藏） -->
+<div class="doc-toolbar">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <a href="/orders/{{ order.id }}" style="color:#cbd5e1;text-decoration:none;font-size:13px;display:flex;align-items:center;gap:4px;">
+      <span>←</span> 返回订单详情
+    </a>
+    <span style="color:#475569;">|</span>
+    <span style="font-weight:600;font-size:14px;">订单编号：{{ order.order_no }}</span>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:8px;">
+    <!-- 单证切换按钮 -->
+    <a href="/orders/{{ order.id }}/docs/pi" class="btn sm {% if doc_type == 'pi' %}primary{% endif %}" style="padding:4px 10px;">
+      形式发票 (PI)
+    </a>
+    <a href="/orders/{{ order.id }}/docs/ci" class="btn sm {% if doc_type == 'ci' %}primary{% endif %}" style="padding:4px 10px;">
+      商业发票 (CI)
+    </a>
+    <a href="/orders/{{ order.id }}/docs/pl" class="btn sm {% if doc_type == 'pl' %}primary{% endif %}" style="padding:4px 10px;">
+      装箱单 (PL)
+    </a>
+
+    <span style="color:#475569;margin:0 4px;">|</span>
+    <button type="button" class="btn primary sm" onclick="window.print()" style="background:#22c55e;border-color:#22c55e;color:#fff;font-weight:600;padding:4px 12px;">
+      🖨️ 打印 / 另存为 PDF
+    </button>
+    <a href="/settings" target="_blank" class="btn sm" style="padding:4px 10px;" title="配置卖方公司名、英文地址及银行账户">
+      ⚙️ 抬头与银行设置
+    </a>
+  </div>
+</div>
+
+<!-- 单证主体纸张 (A4 标准比例) -->
+<div class="doc-paper-container">
+  <div class="doc-paper">
+    <!-- 公司抬头 -->
+    <div class="doc-head-company">
+      <div class="doc-company-en">{{ seller.company_name_en }}</div>
+      {% if seller.company_name_cn %}
+      <div class="doc-company-cn">{{ seller.company_name_cn }}</div>
+      {% endif %}
+      <div class="doc-company-contact">
+        Address: {{ seller.company_address_en }}<br>
+        Tel: {{ seller.company_tel }} · Email: {{ seller.company_email }} · Web: {{ seller.company_website }}
+      </div>
+    </div>
+
+    <!-- 单证标题 -->
+    <div class="doc-title-banner">
+      <h1>{{ doc_title }}</h1>
+      <div class="doc-subtitle">{{ doc_subtitle }}</div>
+    </div>
+
+    <!-- 元数据双栏信息 -->
+    <div class="doc-meta-grid">
+      <!-- 买家/收货人信息 -->
+      <div class="doc-box">
+        <div class="doc-box-title">Buyer / Consignee</div>
+        <div style="font-weight:700;font-size:13px;color:#0f172a;">
+          {{ contact.company or contact.name }}
+        </div>
+        {% if contact.company and contact.name %}
+        <div>Attn: <strong>{{ contact.name }}</strong></div>
+        {% endif %}
+        <div>Country / Region: {{ contact.country or order.customer_country or '-' }}</div>
+        <div>Email: {{ contact.email }}</div>
+      </div>
+
+      <!-- 单据要素信息 -->
+      <div class="doc-box">
+        <div class="doc-box-title">Document & Shipping Info</div>
+        <div style="display:grid;grid-template-columns:100px 1fr;gap:2px;">
+          <span style="color:#64748b;">Doc No:</span>
+          <strong>{{ doc_no }}</strong>
+
+          <span style="color:#64748b;">Date:</span>
+          <strong>{{ doc_date }}</strong>
+
+          <span style="color:#64748b;">Trade Term:</span>
+          <strong>{{ order.trade_term }}</strong>
+
+          <span style="color:#64748b;">Payment Term:</span>
+          <span>{{ order.payment_term }}</span>
+
+          <span style="color:#64748b;">Port of Loading:</span>
+          <span>{{ order.loading_port or 'Shenzhen, China' }}</span>
+
+          <span style="color:#64748b;">Destination:</span>
+          <span>{{ order.destination_port or '-' }}</span>
+
+          {% if doc_type != 'pi' %}
+          <span style="color:#64748b;">Carrier/Vessel:</span>
+          <span>{{ order.carrier or '-' }}</span>
+
+          <span style="color:#64748b;">B/L No:</span>
+          <span style="font-family:monospace;">{{ order.tracking_or_bl_no or '-' }}</span>
+          {% else %}
+          <span style="color:#64748b;">Est. Delivery:</span>
+          <span>{{ order.etd_display }}</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= 明细表格 (不同单证类型展示不同列) ======================= -->
+    {% if doc_type == 'pi' %}
+    <!-- PI 形式发票品项表格 -->
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th style="width:36px;text-align:center;">No.</th>
+          <th style="width:100px;">Item / Model</th>
+          <th>Description of Goods & Specifications</th>
+          <th style="width:75px;">HS Code</th>
+          <th style="width:60px;text-align:right;">Qty</th>
+          <th style="width:50px;text-align:center;">Unit</th>
+          <th style="width:90px;text-align:right;">Unit Price ({{ order.currency }})</th>
+          <th style="width:95px;text-align:right;">Amount ({{ order.currency }})</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if not items %}
+        <tr>
+          <td style="text-align:center;">1</td>
+          <td style="font-family:monospace;">{{ order.order_no }}</td>
+          <td>
+            <strong>{{ order.title }}</strong>
+            {% if order.note %}<div style="font-size:11px;color:#64748b;">{{ order.note }}</div>{% endif %}
+          </td>
+          <td>-</td>
+          <td style="text-align:right;">1</td>
+          <td style="text-align:center;">LOT</td>
+          <td style="text-align:right;">{{ order.total_amount_formatted }}</td>
+          <td style="text-align:right;font-weight:600;">{{ order.total_amount_formatted }}</td>
+        </tr>
+        {% else %}
+        {% for it in items %}
+        <tr>
+          <td style="text-align:center;">{{ it.item_no }}</td>
+          <td style="font-family:monospace;font-weight:600;">{{ it.sku or '-' }}</td>
+          <td>
+            <strong>{{ it.name_en }}</strong>
+            {% if it.name_cn %}<span style="color:#64748b;font-size:11px;"> ({{ it.name_cn }})</span>{% endif %}
+            {% if it.specs %}<div style="font-size:11px;color:#64748b;margin-top:2px;">{{ it.specs }}</div>{% endif %}
+          </td>
+          <td>{{ it.hs_code or '-' }}</td>
+          <td style="text-align:right;font-weight:600;">{{ it.quantity }}</td>
+          <td style="text-align:center;">{{ it.unit }}</td>
+          <td style="text-align:right;">{{ it.unit_price_formatted }}</td>
+          <td style="text-align:right;font-weight:600;">{{ it.amount_formatted }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#f8fafc;">
+          <td colspan="4" style="text-align:right;">TOTAL AMOUNT ({{ order.trade_term }} {{ order.currency }}):</td>
+          <td style="text-align:right;">{% if items %}{{ summary.total_qty }}{% else %}1{% endif %}</td>
+          <td style="text-align:center;">{% if items %}{{ summary.item_count }}{% else %}LOT{% endif %}</td>
+          <td></td>
+          <td style="text-align:right;font-size:13px;color:#0f172a;">
+            {{ order.currency }} ${{ order.total_amount_formatted }}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <!-- 英文大写金额 -->
+    <div class="doc-amount-words">
+      <strong>AMOUNT IN WORDS:</strong> {{ amount_in_words }}
+    </div>
+
+    <!-- 外汇收款银行账户卡片 (Beneficiary Bank) -->
+    <div class="doc-bank-box">
+      <div class="doc-bank-title">🏦 Banking Details for Wire Transfer (T/T)</div>
+      <div style="display:grid;grid-template-columns:160px 1fr;gap:2px;">
+        <span style="color:#64748b;">Beneficiary Name:</span>
+        <strong>{{ seller.bank_beneficiary_name }}</strong>
+
+        <span style="color:#64748b;">Beneficiary Bank:</span>
+        <strong>{{ seller.bank_name }}</strong>
+
+        <span style="color:#64748b;">Bank Address:</span>
+        <span>{{ seller.bank_address }}</span>
+
+        <span style="color:#64748b;">Account No / IBAN:</span>
+        <strong style="font-family:monospace;font-size:13px;color:#0f172a;">{{ seller.bank_account_no }}</strong>
+
+        <span style="color:#64748b;">SWIFT Code:</span>
+        <strong style="font-family:monospace;color:#0f172a;">{{ seller.bank_swift_code }}</strong>
+      </div>
+    </div>
+
+    {% elif doc_type == 'ci' %}
+    <!-- CI 商业发票品项表格 -->
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th style="width:36px;text-align:center;">No.</th>
+          <th style="width:90px;">Marks & Nos</th>
+          <th>Description of Goods</th>
+          <th style="width:85px;">HS Code</th>
+          <th style="width:70px;text-align:right;">Quantity</th>
+          <th style="width:50px;text-align:center;">Unit</th>
+          <th style="width:95px;text-align:right;">Unit Price ({{ order.currency }})</th>
+          <th style="width:105px;text-align:right;">Amount ({{ order.currency }})</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if not items %}
+        <tr>
+          <td style="text-align:center;">1</td>
+          <td style="font-family:monospace;">{{ order.shipping_marks or 'N/M' }}</td>
+          <td><strong>{{ order.title }}</strong></td>
+          <td>-</td>
+          <td style="text-align:right;">1</td>
+          <td style="text-align:center;">LOT</td>
+          <td style="text-align:right;">{{ order.total_amount_formatted }}</td>
+          <td style="text-align:right;font-weight:600;">{{ order.total_amount_formatted }}</td>
+        </tr>
+        {% else %}
+        {% for it in items %}
+        <tr>
+          <td style="text-align:center;">{{ it.item_no }}</td>
+          <td style="font-family:monospace;font-size:11px;">{{ order.shipping_marks or 'N/M' }}</td>
+          <td>
+            <strong>{{ it.name_en }}</strong>
+            {% if it.specs %}<div style="font-size:11px;color:#64748b;">{{ it.specs }}</div>{% endif %}
+          </td>
+          <td style="font-family:monospace;">{{ it.hs_code or '-' }}</td>
+          <td style="text-align:right;font-weight:600;">{{ it.quantity }}</td>
+          <td style="text-align:center;">{{ it.unit }}</td>
+          <td style="text-align:right;">{{ it.unit_price_formatted }}</td>
+          <td style="text-align:right;font-weight:600;">{{ it.amount_formatted }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#f8fafc;">
+          <td colspan="4" style="text-align:right;">TOTAL ({{ order.trade_term }} {{ order.currency }}):</td>
+          <td style="text-align:right;">{% if items %}{{ summary.total_qty }}{% else %}1{% endif %}</td>
+          <td style="text-align:center;">{% if items %}{{ summary.item_count }}{% else %}LOT{% endif %}</td>
+          <td></td>
+          <td style="text-align:right;font-size:13px;color:#0f172a;">
+            {{ order.currency }} ${{ order.total_amount_formatted }}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="doc-amount-words">
+      <strong>AMOUNT IN WORDS:</strong> {{ amount_in_words }}
+    </div>
+
+    <div style="font-size:11.5px;color:#475569;margin-bottom:14px;line-height:1.5;">
+      <strong>COUNTRY OF ORIGIN:</strong> THE PEOPLE'S REPUBLIC OF CHINA (P.R. CHINA)<br>
+      <strong>SHIPPING MARKS:</strong> {{ order.shipping_marks or 'N/M' }}
+    </div>
+
+    {% else %}
+    <!-- PL 装箱单品项表格 -->
+    <table class="doc-table">
+      <thead>
+        <tr>
+          <th style="width:36px;text-align:center;">No.</th>
+          <th style="width:80px;">Marks & Nos</th>
+          <th>Description of Goods</th>
+          <th style="width:65px;text-align:right;">Qty</th>
+          <th style="width:50px;text-align:center;">Unit</th>
+          <th style="width:75px;text-align:center;">Packages</th>
+          <th style="width:85px;text-align:right;">N.W. (KGS)</th>
+          <th style="width:85px;text-align:right;">G.W. (KGS)</th>
+          <th style="width:85px;text-align:right;">Meas (CBM)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if not items %}
+        <tr>
+          <td style="text-align:center;">1</td>
+          <td style="font-family:monospace;font-size:11px;">{{ order.shipping_marks or 'N/M' }}</td>
+          <td><strong>{{ order.title }}</strong></td>
+          <td style="text-align:right;">1</td>
+          <td style="text-align:center;">LOT</td>
+          <td style="text-align:center;">1 PKG</td>
+          <td style="text-align:right;">-</td>
+          <td style="text-align:right;">-</td>
+          <td style="text-align:right;">-</td>
+        </tr>
+        {% else %}
+        {% for it in items %}
+        <tr>
+          <td style="text-align:center;">{{ it.item_no }}</td>
+          <td style="font-family:monospace;font-size:11px;">{{ order.shipping_marks or 'N/M' }}</td>
+          <td>
+            <strong>{{ it.name_en }}</strong>
+            {% if it.specs %}<div style="font-size:11px;color:#64748b;">{{ it.specs }}</div>{% endif %}
+          </td>
+          <td style="text-align:right;font-weight:600;">{{ it.quantity }}</td>
+          <td style="text-align:center;">{{ it.unit }}</td>
+          <td style="text-align:center;font-weight:600;">{{ it.cartons }} CTNS</td>
+          <td style="text-align:right;">{{ it.nw_formatted }}</td>
+          <td style="text-align:right;font-weight:600;">{{ it.gw_formatted }}</td>
+          <td style="text-align:right;font-weight:600;">{{ it.cbm_formatted }}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;background:#f8fafc;">
+          <td colspan="3" style="text-align:right;">TOTAL SUMMARY:</td>
+          <td style="text-align:right;">{% if items %}{{ summary.total_qty }}{% else %}1{% endif %}</td>
+          <td style="text-align:center;">{% if items %}{{ summary.item_count }}{% else %}LOT{% endif %}</td>
+          <td style="text-align:center;font-size:12px;color:#0f172a;">{% if items %}{{ summary.total_cartons }} CTNS{% else %}1 PKG{% endif %}</td>
+          <td style="text-align:right;">{% if items %}{{ summary.total_nw_formatted }}{% else %}-{% endif %}</td>
+          <td style="text-align:right;color:#0f172a;">{% if items %}{{ summary.total_gw_formatted }}{% else %}-{% endif %}</td>
+          <td style="text-align:right;color:#0f172a;">{% if items %}{{ summary.total_cbm_formatted }} CBM{% else %}-{% endif %}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div style="font-size:11.5px;color:#475569;margin-bottom:14px;line-height:1.5;">
+      <strong>TOTAL PACKAGES:</strong> {% if items %}{{ summary.total_cartons }} CARTONS ONLY{% else %}1 CARTON ONLY{% endif %}<br>
+      <strong>TOTAL GROSS WEIGHT:</strong> {% if items %}{{ summary.total_gw_formatted }} KILOGRAMS{% else %}-{% endif %}<br>
+      <strong>TOTAL MEASUREMENT:</strong> {% if items %}{{ summary.total_cbm_formatted }} CBM{% else %}-{% endif %}<br>
+      <strong>COUNTRY OF ORIGIN:</strong> THE PEOPLE'S REPUBLIC OF CHINA
+    </div>
+    {% endif %}
+
+    <!-- 备注说明 -->
+    {% if order.note %}
+    <div style="font-size:11.5px;color:#475569;margin-bottom:16px;border-top:1px solid #e2e8f0;padding-top:8px;">
+      <strong>Special Remarks & Instructions:</strong><br>
+      {{ order.note }}
+    </div>
+    {% endif %}
+
+    <!-- 签字与盖章区 -->
+    <div class="doc-sign-grid">
+      <div class="doc-sign-box">
+        <div><strong>Confirmed & Accepted by Buyer:</strong></div>
+        <div style="font-size:11.5px;color:#64748b;margin-top:2px;">{{ contact.company or contact.name }}</div>
+        <div class="doc-stamp-placeholder">Authorized Signature & Seal / Date</div>
+      </div>
+
+      <div class="doc-sign-box">
+        <div><strong>For and on behalf of Seller:</strong></div>
+        <div style="font-size:11.5px;color:#0f172a;font-weight:600;margin-top:2px;">{{ seller.company_name_en }}</div>
+        <div class="doc-stamp-placeholder">Authorized Signature & Official Stamp</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

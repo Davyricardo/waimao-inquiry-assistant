@@ -1,0 +1,93 @@
+<div class="page-head">
+  <div>
+    <h1>自动规则</h1>
+    <p class="sub">决定每封邮件如何处理：自动回 / 起草待审 / 仅提醒 / 丢弃</p>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<div class="alert {% if settings.auto_send == '1' %}err{% else %}info{% endif %}">
+  <strong>当前模式：</strong>
+  {% if settings.auto_send == '1' %}
+  已开启全自动发送。命中 <code>auto_reply</code> 规则的邮件会**直接发出**，不经人工。<br>
+  建议在准确率稳定后再开启。可到 <a href="/settings">系统设置</a> 关闭。
+  {% else %}
+  人工审核模式（推荐）。所有回复都会先进入 <a href="/review">审核台</a> 等你确认，<br>
+  不会自动发出任何邮件。想改为全自动请到 <a href="/settings">系统设置</a>。
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>规则列表（按优先级从上到下匹配）</h2>
+  {% for r in items %}
+  <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:13px;margin-bottom:11px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:9px;">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;">
+        <span style="font-size:13px;font-weight:500;">{{ r.name }}</span>
+        <span class="tag">优先级 {{ r.priority }}</span>
+        <span class="tag {% if r.action == 'auto_reply' %}c-quote{% elif r.action == 'drop' %}c-spam{% else %}{% endif %}">
+          {{ r.action }}
+        </span>
+        {% if r.template_key %}
+        <span class="tag">模板 {{ r.template_key }}</span>
+        {% endif %}
+        {% if r.is_active %}
+        <span class="tag s-sent">启用</span>
+        {% else %}
+        <span class="tag s-rejected">停用</span>
+        {% endif %}
+      </div>
+      <form method="post" action="/rules/{{ r.id }}/toggle" style="margin:0;">
+        <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+        <button class="btn sm" type="submit">{% if r.is_active %}停用{% else %}启用{% endif %}</button>
+      </form>
+    </div>
+
+    <form method="post" action="/rules/{{ r.id }}/cond">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <label class="field">匹配条件（JSON）</label>
+      <textarea name="cond_json" rows="4" style="min-height:80px;font-family:monospace;font-size:12px;">{{ r.cond_pretty }}</textarea>
+      <div class="hint">
+        可用字段：categories（类别数组）、min_score、max_score。<br>
+        类别取值：inquiry / quote / after_sale / complaint / spam / other
+      </div>
+      <div class="btn-row" style="margin-top:9px;">
+        <button class="btn sm primary" type="submit">保存条件</button>
+      </div>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>动作说明</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>动作</th><th>行为</th><th>适用场景</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="tag">auto_reply</span></td>
+          <td>AI 起草后立即发送（受全局开关约束）</td>
+          <td>低风险、模板化的确认类回复</td>
+        </tr>
+        <tr>
+          <td><span class="tag">draft_only</span></td>
+          <td>起草后进审核台，等人确认</td>
+          <td>绝大多数情况（默认）</td>
+        </tr>
+        <tr>
+          <td><span class="tag">notify</span></td>
+          <td>只标记，不起草，出现在列表里</td>
+          <td>投诉、纠纷等需人工判断的</td>
+        </tr>
+        <tr>
+          <td><span class="tag">drop</span></td>
+          <td>直接标记为已跳过，不进审核队列</td>
+          <td>垃圾邮件</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

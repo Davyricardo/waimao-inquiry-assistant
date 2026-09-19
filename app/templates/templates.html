@@ -1,0 +1,59 @@
+<div class="page-head">
+  <div>
+    <h1>回复模板</h1>
+    <p class="sub">模板提供回复的骨架与给 AI 的写作指示</p>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+
+<div class="alert info">
+  模板里的 <code>{name}</code> <code>{subject}</code> <code>{signature}</code>
+  会在发送时自动替换。<br>
+  配了 AI 密钥时，AI 会参考「写作指示」和客户原邮件来生成更贴合的回信；
+  没有密钥时则直接套用模板正文。
+</div>
+
+{% for t in items %}
+<div class="card">
+  <form method="post" action="/templates/{{ t.id }}">
+    <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;">
+        <span style="font-size:13px;font-weight:500;">{{ t.name }}</span>
+        <span class="tag">{{ t.key }}</span>
+        <span class="tag c-{{ t.category }}">{{ t.category }}</span>
+        <span class="tag">{{ t.lang }}</span>
+      </div>
+      <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" name="is_active" value="1" {{{ checked(t.is_active) }}}
+               style="width:auto;"> 启用
+      </label>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:12px;">
+      <div>
+        <label class="field">名称</label>
+        <input type="text" name="name" value="{{ t.name }}">
+      </div>
+      <div>
+        <label class="field">回复主题</label>
+        <input type="text" name="subject" value="{{ t.subject }}">
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label class="field">正文模板</label>
+      <textarea name="body" rows="10" style="min-height:170px;font-family:monospace;font-size:12px;">{{ t.body }}</textarea>
+    </div>
+
+    <div class="form-row">
+      <label class="field">给 AI 的写作指示</label>
+      <input type="text" name="ai_hint" value="{{ t.ai_hint }}">
+      <div class="hint">例如「不要报价，引导客户提供具体型号和数量」</div>
+    </div>
+
+    <button class="btn primary sm" type="submit">保存</button>
+  </form>
+</div>
+{% endfor %}

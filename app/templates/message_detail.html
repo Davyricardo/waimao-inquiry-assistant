@@ -1,0 +1,171 @@
+<div class="page-head">
+  <div style="min-width:0;">
+    <h1 style="word-break:break-word;">{{ m.subject }}</h1>
+    <p class="sub">
+      {{ m.contact_name or m.from_addr }}
+      {% if m.company %} · {{ m.company }}{% endif %}
+      {% if m.country %} · {{ m.country }}{% endif %}
+      · {{{ ts_full(m.sent_ts) }}}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a class="btn sm" href="/messages">返回列表</a>
+    <a class="btn sm" href="/contacts/{{ m.contact_id }}">查看客户</a>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<div class="card">
+  <h2>中文摘要</h2>
+
+  {% if m.summary_cn %}
+  <div class="sum-box">
+    <div class="sum-head">
+      <span class="sum-title">AI 摘要</span>
+      <span class="source-pill {% if m.summary_source == 'ai' %}ai{% else %}rule{% endif %}">
+        {% if m.summary_source == 'ai' %}AI · {{ m.ai_model }}{% else %}规则生成{% endif %}
+      </span>
+    </div>
+
+    <div class="sum-main">{{ m.summary_cn }}</div>
+
+    {% if m.key_points %}
+    <ul class="sum-points">
+      {% for p in m.key_points %}
+      <li>{{ p }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <div class="sum-meta">
+      {% if m.intent_cn %}
+      <span>核心诉求：<b>{{ m.intent_cn }}</b></span>
+      {% endif %}
+      {% if m.urgency_cn %}
+      <span>紧急度：
+        {% if '高' in m.urgency_cn %}<b class="sum-urgent-high">{{ m.urgency_cn }}</b>
+        {% elif '低' in m.urgency_cn %}<b class="sum-urgent-low">{{ m.urgency_cn }}</b>
+        {% else %}<b class="sum-urgent-mid">{{ m.urgency_cn }}</b>{% endif %}
+      </span>
+      {% endif %}
+    </div>
+
+    {% if m.translated_cn %}
+    <span class="trans-toggle" onclick="var e=document.getElementById('tr');e.style.display=e.style.display==='block'?'none':'block';this.textContent=e.style.display==='block'?'▲ 收起中文全文':'▼ 展开中文全文';">▼ 展开中文全文</span>
+    <div class="trans-body" id="tr">{{ m.translated_cn }}</div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="alert warn" style="margin-bottom:0;">
+    这封邮件还没有中文摘要。
+    <form method="post" action="/messages/{{ m.id }}/summarize" style="display:inline;margin-left:6px;">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <button class="btn sm" type="submit">立即生成</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid-2">
+  <div>
+    <div class="card">
+      <h2>AI 分析结果</h2>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+        <div class="score {% if m.score >= 75 %}hi{% elif m.score >= 50 %}mid{% else %}lo{% endif %}"
+             style="font-size:30px;">{{ m.score }}</div>
+        <div>
+          <span class="tag c-{{ m.category }}">{{ m.category }}</span>
+          <div style="font-size:11.5px;color:var(--text-3);margin-top:4px;">
+            模型：{{ m.ai_model }}
+          </div>
+        </div>
+      </div>
+
+      {% if m.ai_summary %}
+      <div style="font-size:12.5px;margin-bottom:10px;">
+        <strong style="color:var(--text-2);font-weight:500;">摘要</strong><br>
+        {{ m.ai_summary }}
+      </div>
+      {% endif %}
+
+      {% if m.ai_rationale %}
+      <div style="font-size:12.5px;margin-bottom:10px;">
+        <strong style="color:var(--text-2);font-weight:500;">打分依据</strong><br>
+        <span style="color:var(--text-2);">{{ m.ai_rationale }}</span>
+      </div>
+      {% endif %}
+
+      {% if m.entities_parsed %}
+      <div style="font-size:12.5px;">
+        <strong style="color:var(--text-2);font-weight:500;">提取到的实体</strong>
+        <div style="margin-top:6px;">
+          {% for k, v in m.entities_parsed.items() %}
+          <span class="tag" style="margin-right:5px;margin-bottom:5px;">{{ k }}: {{{ v }}}</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>本封邮件</h2>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:10px;">
+        发件人：{{ m.from_name }} &lt;{{ m.from_addr }}&gt;
+      </div>
+      <div class="mail-body">{{{ m.body_text }}}</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>回复草稿</h2>
+      {% if m.drafts %}
+        {% for d in m.drafts %}
+        <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
+            <span class="tag s-{{ d.status }}">{{ d.status }}</span>
+            <span style="font-size:11px;color:var(--text-3);">{{ d.ai_model }}</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--text-2);margin-bottom:6px;">
+            主题：{{ d.subject }}
+          </div>
+          <form method="post" action="/review/{{ d.id }}">
+            <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+            <textarea name="final_text" rows="10" style="min-height:150px;">{{ d.final_text or d.body_text }}</textarea>
+            {% if d.send_error %}
+            <div class="alert err" style="margin:8px 0 0;">{{ d.send_error }}</div>
+            {% endif %}
+            {% if d.status == 'pending' %}
+            <div class="btn-row" style="margin-top:10px;">
+              <button class="btn ok sm" type="submit" name="action" value="send">发送</button>
+              <button class="btn sm" type="submit" name="action" value="approve">仅通过</button>
+              <button class="btn danger sm" type="submit" name="action" value="reject">否决</button>
+            </div>
+            {% endif %}
+          </form>
+        </div>
+        {% endfor %}
+      {% else %}
+      <div class="empty">
+        暂无草稿{% if m.category == 'complaint' %}（投诉类仅提醒，不自动起草）{% endif %}
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>会话往来（{{ m.thread | length }} 封）</h2>
+      {% for t in m.thread %}
+      <div class="thread-item {% if t.direction == 'out' %}out{% endif %}">
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:5px;">
+          {% if t.direction == 'out' %}我方回复{% else %}{{ t.from_addr }}{% endif %}
+          · {{{ ts_full(t.sent_ts) }}}
+        </div>
+        <div style="font-size:12px;font-weight:500;margin-bottom:5px;">{{ t.subject }}</div>
+        <div style="font-size:12px;color:var(--text-2);white-space:pre-wrap;max-height:180px;overflow:hidden;">{{{ truncate(t.body_text, 600) }}}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

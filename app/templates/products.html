@@ -1,0 +1,336 @@
+<div class="page-head">
+  <div>
+    <h1>外贸产品库</h1>
+    <p class="sub">常用产品主数据、中英文品名、海关编码 (HS Code)、出厂成本与包装外箱规格 (CBM / 净毛重)</p>
+  </div>
+  <div class="btn-row">
+    <button class="btn primary sm" type="button" onclick="openProductModal()">+ 新增产品</button>
+    <a class="btn sm" href="/products/export">📥 导出 CSV</a>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<!-- 筛选与搜索栏 -->
+<div class="card" style="padding:14px 18px;margin-bottom:18px;">
+  <form method="get" action="/products" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0;">
+    <div style="flex:1;min-width:220px;">
+      <input type="text" name="q" value="{{ f.q }}" placeholder="搜索 SKU 型号 / 英文品名 / 中文名 / HS 编码..." style="width:100%;">
+    </div>
+    <div style="width:140px;">
+      <select name="category" style="width:100%;">
+        <option value="">全部产品分类</option>
+        {% for cat in categories %}
+        <option value="{{ cat }}" {% if f.category == cat %}selected{% endif %}>{{ cat }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="width:130px;">
+      <select name="is_active" style="width:100%;">
+        <option value="">全部状态</option>
+        <option value="1" {% if f.is_active == '1' %}selected{% endif %}>在售中</option>
+        <option value="0" {% if f.is_active == '0' %}selected{% endif %}>已归档</option>
+      </select>
+    </div>
+    <div>
+      <button class="btn primary sm" type="submit">筛选</button>
+      <a class="btn sm" href="/products">重置</a>
+    </div>
+  </form>
+</div>
+
+<!-- 产品数据表格 -->
+<div class="card" style="padding:0;overflow:hidden;">
+  <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+    <strong>产品目录列表 (共 {{ products | length }} 项)</strong>
+    <span style="font-size:12px;color:var(--text-3);">订单中可直接快速引用产品库规格与报价</span>
+  </div>
+
+  {% if not products %}
+  <div style="padding:48px;text-align:center;color:var(--text-3);">
+    <div style="font-size:40px;margin-bottom:10px;">📦</div>
+    <p style="font-size:15px;margin-bottom:6px;">暂无匹配的产品记录</p>
+    <p style="font-size:13px;color:var(--text-2);">点击右上角「+ 新增产品」建立您的外贸标准产品主数据</p>
+  </div>
+  {% else %}
+  <div style="overflow-x:auto;">
+    <table class="table" style="margin:0;font-size:13px;">
+      <thead>
+        <tr>
+          <th style="width:130px;">SKU / 型号</th>
+          <th>英文品名 / 中文品名</th>
+          <th style="width:110px;">HS Code</th>
+          <th style="width:80px;">单位</th>
+          <th style="width:110px;text-align:right;">参考售价(USD)</th>
+          <th style="width:110px;text-align:right;">出厂成本(CNY)</th>
+          <th style="width:90px;text-align:center;">装箱率</th>
+          <th style="width:140px;">单箱尺寸 & CBM</th>
+          <th style="width:120px;">单箱净毛重</th>
+          <th style="width:70px;text-align:center;">状态</th>
+          <th style="width:110px;text-align:right;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in products %}
+        <tr>
+          <td>
+            <strong style="color:var(--accent);font-family:monospace;font-size:13.5px;">{{ p.sku }}</strong>
+            {% if p.category and p.category != 'default' %}
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px;">{{ p.category }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <div style="font-weight:600;color:var(--text);">{{ p.name_en }}</div>
+            {% if p.name_cn %}
+            <div style="font-size:12px;color:var(--text-2);margin-top:2px;">{{ p.name_cn }}</div>
+            {% endif %}
+            {% if p.specs %}
+            <div style="font-size:11.5px;color:var(--text-3);margin-top:2px;" title="{{ p.specs }}">{{ p.specs }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if p.hs_code %}
+            <span style="font-family:monospace;background:rgba(120,120,120,0.08);padding:2px 6px;border-radius:4px;font-size:12px;">{{ p.hs_code }}</span>
+            {% else %}
+            <span style="color:var(--text-3);">-</span>
+            {% endif %}
+          </td>
+          <td>{{ p.unit }}</td>
+          <td style="text-align:right;font-weight:600;color:var(--text);">
+            ${{ p.price_usd_formatted }}
+          </td>
+          <td style="text-align:right;color:var(--text-2);">
+            ¥{{ p.cost_cny_formatted }}
+          </td>
+          <td style="text-align:center;">
+            {{ p.carton_qty }} {{ p.unit }}/箱
+          </td>
+          <td>
+            {% if p.carton_length_cm > 0 %}
+            <div>{{ p.carton_length_cm }}×{{ p.carton_width_cm }}×{{ p.carton_height_cm }} cm</div>
+            {% endif %}
+            <div style="font-size:11.5px;color:var(--accent);font-weight:600;margin-top:1px;">
+              {{ p.cbm_formatted }} CBM
+            </div>
+          </td>
+          <td>
+            <div style="font-size:12px;">GW: {{ p.gw_formatted }} kg</div>
+            <div style="font-size:12px;color:var(--text-3);">NW: {{ p.nw_formatted }} kg</div>
+          </td>
+          <td style="text-align:center;">
+            {{{ p.status_badge }}}
+          </td>
+          <td style="text-align:right;">
+            <div style="display:flex;justify-content:flex-end;gap:6px;">
+              <button class="btn sm" type="button" onclick="editProduct({{ p.id }})" style="padding:2px 8px;font-size:12px;">编辑</button>
+              <form method="post" action="/products/{{ p.id }}/delete" style="display:inline;margin:0;" onsubmit="return confirm('确定彻底删除产品【{{ p.sku }}】吗？');">
+                <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+                <button class="btn sm danger" type="submit" style="padding:2px 8px;font-size:12px;">删除</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ======================= 新建 / 编辑产品模态框 ======================= -->
+<div id="productModal" class="modal-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+  <div class="card" style="width:100%;max-width:760px;max-height:90vh;overflow-y:auto;background:var(--surface);margin:0;padding:24px;position:relative;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+      <h2 id="productModalTitle" style="font-size:17px;margin:0;">新增外贸产品</h2>
+      <button type="button" onclick="closeProductModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-3);">&times;</button>
+    </div>
+
+    <form method="post" action="/products/save" id="productForm">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="id" id="prod_id" value="">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field" style="font-weight:600;">产品型号 / SKU <span style="color:red;">*</span></label>
+          <input type="text" name="sku" id="prod_sku" placeholder="如: A1200-PRO" required style="width:100%;">
+          <div style="font-size:11px;color:var(--text-3);margin-top:2px;">唯一编码，单证与报关型号标识</div>
+        </div>
+        <div>
+          <label class="field">海关编码 (HS Code)</label>
+          <input type="text" name="hs_code" id="prod_hs_code" placeholder="如: 8501310000" style="width:100%;">
+          <div style="font-size:11px;color:var(--text-3);margin-top:2px;">用于报关与发票单证归类</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label class="field" style="font-weight:600;">英文品名 (English Description) <span style="color:red;">*</span></label>
+        <input type="text" name="name_en" id="prod_name_en" placeholder="如: High Speed Brushless DC Motor" required style="width:100%;">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <label class="field">中文品名</label>
+          <input type="text" name="name_cn" id="prod_name_cn" placeholder="如: 高速无刷直流电机" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">产品分类</label>
+          <input type="text" name="category" id="prod_category" placeholder="如: 电机 / 机械配件" value="default" style="width:100%;">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label class="field">规格参数 / 技术描述 (Specs & Materials)</label>
+        <textarea name="specs" id="prod_specs" rows="2" placeholder="如: 24V 3000RPM, Aluminum casing, IP65 waterproof..." style="width:100%;"></textarea>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;margin-bottom:12px;">
+        <div>
+          <label class="field">计量单位</label>
+          <input type="text" name="unit" id="prod_unit" value="PCS" placeholder="PCS / SET" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">参考售价 (USD)</label>
+          <input type="number" step="0.01" name="price_usd" id="prod_price_usd" value="0.00" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">出厂采购价 (CNY)</label>
+          <input type="number" step="0.01" name="cost_cny" id="prod_cost_cny" value="0.00" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">起订量 (MOQ)</label>
+          <input type="number" name="moq" id="prod_moq" value="1" style="width:100%;">
+        </div>
+      </div>
+
+      <!-- 外箱包装与方数核算 -->
+      <div class="card" style="padding:14px;background:rgba(120,120,120,0.03);margin-bottom:14px;border:1px dashed var(--border);">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span>📦 外箱包装与材积重 (Carton Packaging & CBM)</span>
+          <span style="font-size:11.5px;color:var(--accent);">输入长宽高自动计算 CBM</span>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:10px;margin-bottom:8px;">
+          <div>
+            <label class="field">装箱数 (PCS/箱)</label>
+            <input type="number" name="carton_qty" id="prod_carton_qty" value="1" min="1" style="width:100%;">
+          </div>
+          <div>
+            <label class="field">外箱长 (cm)</label>
+            <input type="number" step="0.1" name="carton_length_cm" id="prod_length" value="0" oninput="calcCBM()" style="width:100%;">
+          </div>
+          <div>
+            <label class="field">外箱宽 (cm)</label>
+            <input type="number" step="0.1" name="carton_width_cm" id="prod_width" value="0" oninput="calcCBM()" style="width:100%;">
+          </div>
+          <div>
+            <label class="field">外箱高 (cm)</label>
+            <input type="number" step="0.1" name="carton_height_cm" id="prod_height" value="0" oninput="calcCBM()" style="width:100%;">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;">
+          <div>
+            <label class="field">单箱体积 (CBM)</label>
+            <input type="number" step="0.0001" name="carton_cbm" id="prod_cbm" value="0.0000" style="width:100%;font-weight:600;color:var(--accent);">
+          </div>
+          <div>
+            <label class="field">单箱毛重 GW (KG)</label>
+            <input type="number" step="0.01" name="carton_gw_kg" id="prod_gw" value="0.00" style="width:100%;">
+          </div>
+          <div>
+            <label class="field">单箱净重 NW (KG)</label>
+            <input type="number" step="0.01" name="carton_nw_kg" id="prod_nw" value="0.00" style="width:100%;">
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px;">
+        <div>
+          <label class="field">内部备忘 / 生产提醒</label>
+          <input type="text" name="note" id="prod_note" placeholder="如: 需配出口环保包装盒" style="width:100%;">
+        </div>
+        <div>
+          <label class="field">在售状态</label>
+          <select name="is_active" id="prod_is_active" style="width:100%;">
+            <option value="1">在售中</option>
+            <option value="0">已归档 (不推荐给新单)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-row" style="justify-content:flex-end;">
+        <button class="btn" type="button" onclick="closeProductModal()">取消</button>
+        <button class="btn primary" type="submit" id="productSubmitBtn">保存产品资料</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openProductModal() {
+  document.getElementById('productForm').reset();
+  document.getElementById('prod_id').value = '';
+  document.getElementById('prod_unit').value = 'PCS';
+  document.getElementById('prod_category').value = 'default';
+  document.getElementById('prod_moq').value = '1';
+  document.getElementById('prod_carton_qty').value = '1';
+  document.getElementById('prod_is_active').value = '1';
+  document.getElementById('productModalTitle').textContent = '新增外贸产品';
+  document.getElementById('productSubmitBtn').textContent = '保存并录入产品库';
+  var m = document.getElementById('productModal');
+  m.style.display = 'flex';
+}
+
+function closeProductModal() {
+  document.getElementById('productModal').style.display = 'none';
+}
+
+function calcCBM() {
+  var l = parseFloat(document.getElementById('prod_length').value) || 0;
+  var w = parseFloat(document.getElementById('prod_width').value) || 0;
+  var h = parseFloat(document.getElementById('prod_height').value) || 0;
+  if (l > 0 && w > 0 && h > 0) {
+    var cbm = (l * w * h) / 1000000.0;
+    document.getElementById('prod_cbm').value = cbm.toFixed(4);
+  }
+}
+
+function editProduct(pid) {
+  fetch('/api/products/' + pid)
+    .then(function(res) { return res.json(); })
+    .then(function(p) {
+      if (!p || p.error) {
+        alert('无法读取产品资料');
+        return;
+      }
+      document.getElementById('prod_id').value = p.id;
+      document.getElementById('prod_sku').value = p.sku || '';
+      document.getElementById('prod_hs_code').value = p.hs_code || '';
+      document.getElementById('prod_name_en').value = p.name_en || '';
+      document.getElementById('prod_name_cn').value = p.name_cn || '';
+      document.getElementById('prod_category').value = p.category || 'default';
+      document.getElementById('prod_specs').value = p.specs || '';
+      document.getElementById('prod_unit').value = p.unit || 'PCS';
+      document.getElementById('prod_price_usd').value = p.price_usd || '0.00';
+      document.getElementById('prod_cost_cny').value = p.cost_cny || '0.00';
+      document.getElementById('prod_moq').value = p.moq || '1';
+      document.getElementById('prod_carton_qty').value = p.carton_qty || '1';
+      document.getElementById('prod_length').value = p.carton_length_cm || '0';
+      document.getElementById('prod_width').value = p.carton_width_cm || '0';
+      document.getElementById('prod_height').value = p.carton_height_cm || '0';
+      document.getElementById('prod_cbm').value = p.carton_cbm || '0.0000';
+      document.getElementById('prod_gw').value = p.carton_gw_kg || '0.00';
+      document.getElementById('prod_nw').value = p.carton_nw_kg || '0.00';
+      document.getElementById('prod_note').value = p.note || '';
+      document.getElementById('prod_is_active').value = p.is_active ? '1' : '0';
+
+      document.getElementById('productModalTitle').textContent = '编辑产品：' + p.sku;
+      document.getElementById('productSubmitBtn').textContent = '保存修改';
+      document.getElementById('productModal').style.display = 'flex';
+    })
+    .catch(function(err) {
+      alert('加载失败: ' + err);
+    });
+}
+</script>

@@ -1,0 +1,148 @@
+<div class="page-head">
+  <div>
+    <h1>数据看板</h1>
+    <p class="sub">今日概览 · 数据来自实时统计</p>
+  </div>
+  <form method="post" action="/api/sync" style="margin:0">
+    <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+    <button class="btn primary" type="submit">立即同步邮件</button>
+  </form>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+{% if not d.account %}
+<div class="alert warn">
+  尚未配置邮箱账户。请先到 <a href="/settings">系统设置</a> 填入邮箱与授权码，
+  系统才能开始收信。
+  {% if d.demo_mode %}
+  <br>当前显示的是<strong>演示数据</strong>，用于预览界面效果。
+  {% endif %}
+</div>
+{% endif %}
+
+{% if d.account and d.account.last_error %}
+<div class="alert err">
+  上次收信出错：{{ d.account.last_error }}　
+  <a href="/settings">前往检查配置</a>
+</div>
+{% endif %}
+
+<div class="metrics">
+  <div class="metric">
+    <div class="label">今日询盘</div>
+    <div class="value">{{ d.today_in }}</div>
+    <div class="foot">
+      {% if d.delta is not none %}{% if d.delta >= 0 %}较昨日 +{{ d.delta }}%{% endif %}{% if d.delta < 0 %}较昨日 {{ d.delta }}%{% endif %}{% endif %}{% if d.delta is none %}昨日 {{ d.yday_in }} 封{% endif %}
+    </div>
+  </div>
+  <div class="metric hi">
+    <div class="label">高意向客户</div>
+    <div class="value">{{ d.high_intent }}</div>
+    <div class="foot">意向分 ≥ {{ high }} 的今日邮件</div>
+  </div>
+  <div class="metric wa">
+    <div class="label">待人工审核</div>
+    <div class="value">{{ d.pending_review }}</div>
+    <div class="foot">需要你确认的回复草稿</div>
+  </div>
+  <div class="metric ok">
+    <div class="label">今日已回复</div>
+    <div class="value">{{ d.sent_today }}</div>
+    <div class="foot">其中自动发送 {{ d.auto_today }} 封</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>近 7 日询盘趋势</h2>
+  <div id="chartWrap" style="position:relative;width:100%;height:220px;">
+    <canvas id="trendChart" role="img" aria-label="近 7 日询盘数量与高意向数量柱状图">
+      近 7 日询盘数据：{{{ tr.labels }}} 对应 {{{ tr.in_count }}}
+    </canvas>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:12px;color:var(--text-2);">
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:#85B7EB;"></span>全部询盘
+    </span>
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:#E24B4A;"></span>高意向
+    </span>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card" style="margin-bottom:0;">
+    <h2>高意向询盘</h2>
+    {% if leads %}
+      {% for m in leads %}
+      <div class="row">
+        <div class="avatar">{{ m.name or m.email }}</div>
+        <div class="row-main">
+          <div class="row-title">
+            <a href="/messages/{{ m.id }}">{{ m.name or m.email }}</a>
+            {% if m.company %} · {{ m.company }}{% endif %}
+            {% if m.country %} · {{ m.country }}{% endif %}
+          </div>
+          <div class="row-desc">{{ m.subject }}</div>
+        </div>
+        <div>
+          <div class="score {% if m.score >= 75 %}hi{% elif m.score >= 50 %}mid{% else %}lo{% endif %}">{{ m.score }}</div>
+          <div style="font-size:10px;color:var(--text-3);text-align:right;">{{ m.category }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">暂无数据</div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-bottom:0;">
+    <h2>近 30 日分类分布</h2>
+    {% if cats %}
+      {% for c in cats %}
+      <div style="margin-bottom:11px;">
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px;">
+          <span>{{ c.cat }}</span>
+          <span style="color:var(--text-2);">{{ c.c }} 封 · 均分 {{ c.avg_score }}</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:{{{ c.pct }}}%;"></div></div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">暂无数据</div>
+    {% endif %}
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:12.5px;color:var(--text-2);">
+      累计客户 <strong style="color:var(--text);">{{ d.total_contacts }}</strong> 位 ·
+      未读 <strong style="color:var(--text);">{{ d.unread }}</strong> 封
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+(function(){
+  var el = document.getElementById('trendChart');
+  if (!el || typeof Chart === 'undefined') return;
+  new Chart(el, {
+    type: 'bar',
+    data: {
+      labels: {{{ tr.labels_json }}},
+      datasets: [
+        { label: '全部询盘', data: {{{ tr.in_json }}}, backgroundColor: '#85B7EB', borderRadius: 3 },
+        { label: '高意向', data: {{{ tr.high_json }}}, backgroundColor: '#E24B4A', borderRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } },
+             grid: { color: '#eeece8' } },
+        x: { ticks: { autoSkip: false, maxRotation: 45, font: { size: 11 } },
+             grid: { display: false } }
+      }
+    }
+  });
+})();
+</script>

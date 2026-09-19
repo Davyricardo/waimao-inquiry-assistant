@@ -1,0 +1,60 @@
+# ==============================================================================
+# 外贸询盘助手 - Git 版本控制忽略规则 (面向 GitHub 安全备份)
+# ==============================================================================
+
+# 虚拟环境与依赖
+.venv/
+venv/
+ENV/
+env/
+node_modules/
+
+# Python 字节码与测试缓存
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 敏感文件与环境凭证（绝不允许提交到代码仓库）
+.env
+.env.local
+.env.*
+!.env.example
+
+# 密钥、证书与保密资产
+key/
+*.pem
+*.key
+*.enc
+secrets/
+*.pfx
+*.p12
+
+# 客户业务数据、数据库与商业单证
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+*.sqlite
+backups/
+
+# 部署包与运行时日志
+logs/
+*.log
+deploy/bundle.tar.gz
+bundle.tar.gz
+
+# 临时测试截图与 IDE 配置
+shots/
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# 本地工作记忆（含运维密码、VPS IP、邮箱账号等敏感信息，绝不入库）
+.workbuddy/

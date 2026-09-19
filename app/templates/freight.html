@@ -1,0 +1,719 @@
+<div class="page-head">
+  <div>
+    <h1>货运代理与运费比价</h1>
+    <p class="sub">管理合作货代名录、渠道报价明细与智能运输成本测算对比</p>
+  </div>
+  <div class="btn-row">
+    <button class="btn primary sm" type="button" onclick="openNewQuoteModal()">+ 录入报价</button>
+    <button class="btn sm" type="button" onclick="openNewForwarderModal()">+ 新建货代</button>
+    <a class="btn sm" href="/freight/export" download>导出报价 CSV</a>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<!-- 顶部选项卡 -->
+<div class="freight-tabs">
+  <a class="freight-tab-btn {% if active_tab == 'calc' %}active{% endif %}" href="/freight?tab=calc&dest={{ f.dest }}&channel={{ f.channel }}&weight={{ f.weight }}&vol={{ f.vol }}">
+    <span>🧮 运费测算与比价</span>
+  </a>
+  <a class="freight-tab-btn {% if active_tab == 'quotes' %}active{% endif %}" href="/freight?tab=quotes">
+    <span>📋 渠道报价库 ({{ total_quotes }})</span>
+  </a>
+  <a class="freight-tab-btn {% if active_tab == 'forwarders' %}active{% endif %}" href="/freight?tab=forwarders">
+    <span>🏢 货代名录 ({{ total_forwarders }})</span>
+  </a>
+</div>
+
+<!-- ======================= TAB 1: 运费测算与对比 ======================= -->
+{% if active_tab == 'calc' %}
+<div class="card">
+  <form method="get" action="/freight">
+    <input type="hidden" name="tab" value="calc">
+    <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:12px;align-items:end;">
+      <div>
+        <label class="field">目的地 / 国家 / 港口</label>
+        <input type="text" name="dest" value="{{ f.dest }}" placeholder="例如：美国 / 洛杉矶 / 德国 / 汉堡">
+      </div>
+      <div>
+        <label class="field">运输渠道</label>
+        <select name="channel">
+          <option value="">全部渠道</option>
+          <option value="sea" {% if f.channel == 'sea' %}selected{% endif %}>🌊 海运</option>
+          <option value="air" {% if f.channel == 'air' %}selected{% endif %}>✈️ 空运</option>
+          <option value="express" {% if f.channel == 'express' %}selected{% endif %}>🚀 国际快递</option>
+          <option value="rail" {% if f.channel == 'rail' %}selected{% endif %}>🚆 铁运</option>
+          <option value="truck" {% if f.channel == 'truck' %}selected{% endif %}>🚛 卡航</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">货物毛重 (KG)</label>
+        <input type="number" step="0.1" name="weight" value="{{ f.weight }}" placeholder="例如：500">
+      </div>
+      <div>
+        <label class="field">货物体积 (CBM)</label>
+        <input type="number" step="0.01" name="vol" value="{{ f.vol }}" placeholder="例如：2.5">
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn primary" type="submit" style="white-space:nowrap;">开始比价</button>
+        {% if f.dest or f.channel or f.weight or f.vol %}
+        <a class="btn" href="/freight?tab=calc" style="display:inline-flex;align-items:center;">重置</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+{% if calc.quotes %}
+<!-- 比价亮点与一键复制 -->
+<div class="calc-card-highlight">
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+    <div>
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:4px;">
+        🎯 比价完成：共匹配到 {{ calc.total_matches }} 个运输方案（已按总成本由低到高排序）
+      </div>
+      <div style="font-size:12.5px;color:var(--text-2);">
+        参考条件：目的地【{{ calc.destination or '全部' }}】 · 货物规格【{{ calc.weight_kg }} KG / {{ calc.volume_cbm }} CBM】
+      </div>
+    </div>
+    <div>
+      <button class="btn primary sm" type="button" onclick="copyQuoteSummary()" id="copy-btn">
+        📋 一键复制对比文案 (发客户)
+      </button>
+      <textarea id="quote-summary-text" style="display:none;">{{ calc.summary_text }}</textarea>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:45px;text-align:center;">排名</th>
+          <th>货代公司 / 联系人</th>
+          <th>渠道方案</th>
+          <th>起运 -> 目的</th>
+          <th style="text-align:right;">预估总运费</th>
+          <th style="text-align:right;">基准单价</th>
+          <th>时效</th>
+          <th>杂费 / 备注</th>
+          <th style="text-align:right;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in calc.quotes %}
+        <tr style="{% if q.is_cheapest %}background:rgba(34,197,94,0.04);{% endif %}">
+          <td style="text-align:center;">
+            <span class="rank-circle {% if forloop.index == 1 %}rank-1{% elif forloop.index == 2 %}rank-2{% elif forloop.index == 3 %}rank-3{% endif %}">
+              {{ forloop.index }}
+            </span>
+          </td>
+          <td>
+            <div style="font-weight:600;font-size:13.5px;color:var(--text);">
+              {{ q.forwarder_name }}
+            </div>
+            <div style="font-size:11.5px;color:var(--text-3);margin-top:2px;">
+              {% if q.forwarder_contact %}{{ q.forwarder_contact }} · {% endif %}
+              {% if q.forwarder_phone %}<a href="tel:{{ q.forwarder_phone }}">{{ q.forwarder_phone }}</a>{% endif %}
+            </div>
+          </td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span class="channel-badge {{ q.channel_type }}">
+                {{ q.channel_icon }} {{ q.channel_name }}
+              </span>
+              <span style="font-weight:500;font-size:13px;">{{ q.title }}</span>
+            </div>
+            <div style="margin-top:4px;display:flex;gap:4px;">
+              {% if q.is_cheapest %}
+              <span class="badge-cheapest">🥇 最低成本</span>
+              {% endif %}
+              {% if q.is_fastest %}
+              <span class="badge-fastest">⚡ 最快时效</span>
+              {% endif %}
+            </div>
+          </td>
+          <td style="font-size:12.5px;">
+            <span style="color:var(--text-2);">{{ q.origin }}</span>
+            <span style="color:var(--accent);margin:0 3px;">➔</span>
+            <strong>{{ q.destination }}</strong>
+          </td>
+          <td style="text-align:right;">
+            <div style="font-size:15px;font-weight:700;color:var(--accent);">
+              {{ q.currency_symbol }}{{ q.estimated_cost }}
+            </div>
+            {% if q.currency != 'CNY' %}
+            <div style="font-size:11px;color:var(--text-3);">
+              约 ¥{{ q.cost_cny }}
+            </div>
+            {% endif %}
+            <div style="font-size:10.5px;color:var(--text-3);">
+              (基准: {{ q.charge_basis }})
+            </div>
+          </td>
+          <td style="text-align:right;font-size:12.5px;white-space:nowrap;">
+            {{ q.unit_display }}
+            {% if q.min_charge %}
+            <div style="font-size:10.5px;color:var(--text-3);">{{ q.min_charge }}</div>
+            {% endif %}
+          </td>
+          <td style="font-size:12.5px;white-space:nowrap;">
+            <strong>{{ q.transit_time_text or '未注明' }}</strong>
+          </td>
+          <td style="font-size:12px;color:var(--text-2);max-width:200px;">
+            {{ q.extra_fees or q.remarks or '-' }}
+          </td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn sm" type="button" onclick="openEditQuoteModal({{ q.id }})">编辑</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:48px 20px;">
+  <div style="font-size:36px;margin-bottom:12px;">🚢</div>
+  <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;">
+    {% if total_quotes == 0 %}暂无报价数据，请先录入货代与报价{% else %}未匹配到符合条件的渠道报价{% endif %}
+  </div>
+  <div style="font-size:13px;color:var(--text-2);max-width:460px;margin:0 auto 20px auto;">
+    {% if total_quotes == 0 %}
+    点击右上角「+ 新建货代」和「+ 录入报价」，录入各家海运/空运/快递渠道，系统将自动帮您按重量体积智能算费与比价。
+    {% else %}
+    请尝试清空或放宽筛选条件，或在上方切换至其他目的地。
+    {% endif %}
+  </div>
+  <div>
+    {% if total_quotes == 0 %}
+    <button class="btn primary" type="button" onclick="openNewForwarderModal()">+ 立即录入首家货代</button>
+    {% else %}
+    <a class="btn primary" href="/freight?tab=calc">查看全部对比</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+
+<!-- ======================= TAB 2: 渠道报价库 ======================= -->
+{% if active_tab == 'quotes' %}
+<div class="card">
+  <form method="get" action="/freight">
+    <input type="hidden" name="tab" value="quotes">
+    <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1.5fr) auto;gap:10px;align-items:end;">
+      <div>
+        <label class="field">关联货代</label>
+        <select name="fid">
+          <option value="">全部货代</option>
+          {% for fwd in forwarders %}
+          <option value="{{ fwd.id }}" {% if f.fid == fwd.id %}selected{% endif %}>{{ fwd.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="field">运输渠道</label>
+        <select name="channel">
+          <option value="">全部渠道</option>
+          <option value="sea" {% if f.channel == 'sea' %}selected{% endif %}>🌊 海运</option>
+          <option value="air" {% if f.channel == 'air' %}selected{% endif %}>✈️ 空运</option>
+          <option value="express" {% if f.channel == 'express' %}selected{% endif %}>🚀 国际快递</option>
+          <option value="rail" {% if f.channel == 'rail' %}selected{% endif %}>🚆 铁运</option>
+          <option value="truck" {% if f.channel == 'truck' %}selected{% endif %}>🚛 卡航</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">目的地</label>
+        <input type="text" name="dest" value="{{ f.dest }}" placeholder="目的国家/港口">
+      </div>
+      <div>
+        <label class="field">方案关键词</label>
+        <input type="text" name="q" value="{{ f.q }}" placeholder="方案名/起运地/备注">
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn primary" type="submit">筛选</button>
+        {% if f.fid or f.channel or f.dest or f.q %}
+        <a class="btn" href="/freight?tab=quotes" style="display:inline-flex;align-items:center;">重置</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if quotes %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>渠道方案</th>
+          <th>货代公司</th>
+          <th>运输方式</th>
+          <th>路线 (起运 ➔ 目的)</th>
+          <th style="text-align:right;">基准单价</th>
+          <th>起运标准</th>
+          <th>预估时效</th>
+          <th>有效期</th>
+          <th>杂费说明</th>
+          <th style="text-align:right;width:120px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in quotes %}
+        <tr>
+          <td>
+            <div style="font-weight:600;font-size:13.5px;color:var(--text);">
+              {{ q.title }}
+            </div>
+            {% if q.remarks %}
+            <div style="font-size:11.5px;color:var(--text-3);margin-top:2px;">
+              {{ q.remarks }}
+            </div>
+            {% endif %}
+          </td>
+          <td>
+            <div style="font-size:13px;font-weight:500;">{{ q.forwarder_name }}</div>
+            <div style="font-size:11px;color:var(--text-3);">
+              {% if q.forwarder_phone %}{{ q.forwarder_phone }}{% endif %}
+            </div>
+          </td>
+          <td>
+            <span class="channel-badge {{ q.channel_type }}">
+              {{ q.channel_icon }} {{ q.channel_name }}
+            </span>
+          </td>
+          <td style="font-size:12.5px;">
+            <span>{{ q.origin }}</span>
+            <span style="color:var(--accent);margin:0 2px;">➔</span>
+            <strong>{{ q.destination }}</strong>
+          </td>
+          <td style="text-align:right;font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap;">
+            {{ q.unit_display }}
+          </td>
+          <td style="font-size:12px;color:var(--text-2);">
+            {{ q.min_charge or '-' }}
+          </td>
+          <td style="font-size:12px;white-space:nowrap;">
+            {{ q.transit_time_text or '-' }}
+          </td>
+          <td>
+            {{{ q.valid_badge }}}
+          </td>
+          <td style="font-size:12px;color:var(--text-2);max-width:180px;">
+            {{ q.extra_fees or '-' }}
+          </td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn sm" type="button" onclick="openEditQuoteModal({{ q.id }})">编辑</button>
+            <form method="post" action="/freight/quote/{{ q.id }}/delete" style="display:inline;" onsubmit="return confirm('确定删除该报价方案吗？');">
+              <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+              <button class="btn sm danger" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div style="text-align:center;padding:40px 20px;color:var(--text-2);">
+    没有符合条件的报价记录
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+
+<!-- ======================= TAB 3: 货代名录 ======================= -->
+{% if active_tab == 'forwarders' %}
+<div class="card">
+  <form method="get" action="/freight">
+    <input type="hidden" name="tab" value="forwarders">
+    <div style="display:flex;gap:10px;align-items:center;">
+      <input type="text" name="q" value="{{ f.q }}" placeholder="搜索货代公司、联系人、电话、优势航线" style="max-width:380px;">
+      <button class="btn primary" type="submit">搜索货代</button>
+      {% if f.q %}
+      <a class="btn" href="/freight?tab=forwarders">重置</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+{% if forwarders %}
+<div class="fwd-grid">
+  {% for fwd in forwarders %}
+  <div class="fwd-card">
+    <div>
+      <div class="fwd-card-head">
+        <div>
+          <div class="fwd-card-title">{{ fwd.name }}</div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:2px;">
+            报价方案：<strong style="color:var(--accent);">{{ fwd.quote_count }}</strong> 个
+          </div>
+        </div>
+        <div class="fwd-card-rating" title="合作星级：{{ fwd.rating }}星">
+          {% if fwd.rating == 5 %}★★★★★
+          {% elif fwd.rating == 4 %}★★★★☆
+          {% elif fwd.rating == 3 %}★★★☆☆
+          {% elif fwd.rating == 2 %}★★☆☆☆
+          {% else %}★☆☆☆☆{% endif %}
+        </div>
+      </div>
+
+      <div style="margin:10px 0;">
+        <div class="fwd-contact-line">
+          <span>👤 联系人：</span>
+          <strong>{{ fwd.contact_person or '未登记' }}</strong>
+        </div>
+        {% if fwd.phone %}
+        <div class="fwd-contact-line">
+          <span>📞 电话/手机：</span>
+          <a href="tel:{{ fwd.phone }}">{{ fwd.phone }}</a>
+        </div>
+        {% endif %}
+        {% if fwd.wechat_or_im %}
+        <div class="fwd-contact-line">
+          <span>💬 微信/IM：</span>
+          <span>{{ fwd.wechat_or_im }}</span>
+          <button type="button" class="btn sm" style="padding:1px 6px;font-size:11px;" onclick="copyText('{{ fwd.wechat_or_im }}')">复制</button>
+        </div>
+        {% endif %}
+        {% if fwd.email %}
+        <div class="fwd-contact-line">
+          <span>✉️ 邮箱：</span>
+          <a href="mailto:{{ fwd.email }}">{{ fwd.email }}</a>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if fwd.advantages %}
+      <div class="fwd-advantages">
+        <strong>✨ 优势航线/专线：</strong><br>
+        {{ fwd.advantages }}
+      </div>
+      {% endif %}
+
+      {% if fwd.address %}
+      <div style="font-size:11.5px;color:var(--text-3);margin-top:6px;">
+        📍 集运仓/地址：{{ fwd.address }}
+      </div>
+      {% endif %}
+
+      {% if fwd.note %}
+      <div style="font-size:11.5px;color:var(--text-3);margin-top:4px;">
+        📝 备忘：{{ fwd.note }}
+      </div>
+      {% endif %}
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
+      <button class="btn primary sm" type="button" onclick="openNewQuoteForForwarder({{ fwd.id }}, '{{ fwd.name }}')">+ 录入报价</button>
+      <div style="display:flex;gap:6px;">
+        <button class="btn sm" type="button" onclick="openEditForwarderModal({{ fwd.id }})">编辑</button>
+        <form method="post" action="/freight/forwarder/{{ fwd.id }}/delete" style="display:inline;" onsubmit="return confirm('确定删除货代【{{ fwd.name }}】及其所有关联报价吗？');">
+          <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+          <button class="btn sm danger" type="submit">删除</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:40px 20px;color:var(--text-2);">
+  暂无货代档案记录，请点击右上角「+ 新建货代」
+</div>
+{% endif %}
+{% endif %}
+
+
+<!-- ======================= 模态框: 货代新增/编辑（对齐客户管理规范） ======================= -->
+<div id="modal-fwd" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeFwdModal()">
+  <div class="modal-card" style="max-width:580px;">
+    <div class="modal-head">
+      <h3 id="modal-fwd-title">新建货运代理</h3>
+      <button class="modal-close" type="button" onclick="closeFwdModal()">&times;</button>
+    </div>
+    <form method="post" action="/freight/forwarder/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="id" id="fwd-id" value="">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <label class="field">货代公司 / 代理名称 <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="name" id="fwd-name" required placeholder="例如：深圳快捷达国际物流 / 中远海运代理">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">联系人姓名</label>
+            <input type="text" name="contact_person" id="fwd-contact" placeholder="例如：张经理 / Lisa">
+          </div>
+          <div>
+            <label class="field">联系电话 / 手机</label>
+            <input type="text" name="phone" id="fwd-phone" placeholder="例如：13800000000 / 0755-88888888">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">微信 / WhatsApp / QQ</label>
+            <input type="text" name="wechat_or_im" id="fwd-im" placeholder="例如：wx_freight_01 / +86 138...">
+          </div>
+          <div>
+            <label class="field">业务邮箱</label>
+            <input type="email" name="email" id="fwd-email" placeholder="sales@freight-example.com">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
+          <div>
+            <label class="field">优势航线 / 特色专线</label>
+            <input type="text" name="advantages" id="fwd-advantages" placeholder="例如：美西超大件海卡、欧洲双清包税专线、东南亚空派">
+          </div>
+          <div>
+            <label class="field">合作评价星级</label>
+            <select name="rating" id="fwd-rating">
+              <option value="5">★★★★★ (5星 核心)</option>
+              <option value="4">★★★★☆ (4星 推荐)</option>
+              <option value="3">★★★☆☆ (3星 常规)</option>
+              <option value="2">★★☆☆☆ (2星 备用)</option>
+              <option value="1">★☆☆☆☆ (1星 慎用)</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="field">集运仓 / 仓库交货地址</label>
+          <input type="text" name="address" id="fwd-address" placeholder="例如：深圳市宝安区福永街道集运仓 / 义乌集货点">
+        </div>
+        <div>
+          <label class="field">合作备忘 / 注意事项</label>
+          <textarea name="note" id="fwd-note" rows="2" placeholder="截单时间、账期要求、报关习惯等"></textarea>
+        </div>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button class="btn" type="button" onclick="closeFwdModal()">取消</button>
+        <button class="btn primary" type="submit">保存货代</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- ======================= 模态框: 报价新增/编辑（对齐客户管理规范） ======================= -->
+<div id="modal-quote" class="modal-backdrop" style="display:none;" onclick="if(event.target===this)closeQuoteModal()">
+  <div class="modal-card" style="max-width:640px;">
+    <div class="modal-head">
+      <h3 id="modal-quote-title">录入渠道报价</h3>
+      <button class="modal-close" type="button" onclick="closeQuoteModal()">&times;</button>
+    </div>
+    <form method="post" action="/freight/quote/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" name="id" id="quote-id" value="">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:10px;">
+          <div>
+            <label class="field">关联货代公司 <span style="color:var(--danger)">*</span></label>
+            <select name="forwarder_id" id="quote-fid" required>
+              <option value="">-- 请选择货代 --</option>
+              {% for fwd in forwarders %}
+              <option value="{{ fwd.id }}">{{ fwd.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="field">运输方式 <span style="color:var(--danger)">*</span></label>
+            <select name="channel_type" id="quote-channel" required>
+              <option value="sea">🌊 海运</option>
+              <option value="air">✈️ 空运</option>
+              <option value="express">🚀 国际快递</option>
+              <option value="rail">🚆 铁运 (中欧班列)</option>
+              <option value="truck">🚛 卡航 (跨境卡车)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="field">渠道方案名称 <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="title" id="quote-title" required placeholder="例如：美森快船超大件限时达 / 中欧班列拼箱 / DHL大陆特惠">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">起运地 / 港口 <span style="color:var(--danger)">*</span></label>
+            <input type="text" name="origin" id="quote-origin" required value="深圳" placeholder="深圳 / 宁波 / 上海 / 香港">
+          </div>
+          <div>
+            <label class="field">目的地 / 港口 / 国家 <span style="color:var(--danger)">*</span></label>
+            <input type="text" name="destination" id="quote-destination" required placeholder="例如：美国 / 洛杉矶 / 德国 / 汉堡">
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">基准单价 <span style="color:var(--danger)">*</span></label>
+            <input type="number" step="0.01" name="unit_price" id="quote-price" required placeholder="例如：18.5">
+          </div>
+          <div>
+            <label class="field">计价单位 <span style="color:var(--danger)">*</span></label>
+            <select name="price_unit" id="quote-unit" required>
+              <option value="kg">元 / KG (按重量)</option>
+              <option value="cbm">元 / CBM (按体积)</option>
+              <option value="20gp">元 / 20GP (小柜)</option>
+              <option value="40hq">元 / 40HQ (高柜)</option>
+              <option value="flat">元 / 票 (一口价)</option>
+            </select>
+          </div>
+          <div>
+            <label class="field">报价币种 <span style="color:var(--danger)">*</span></label>
+            <select name="currency" id="quote-currency" required>
+              <option value="CNY">¥ CNY (人民币)</option>
+              <option value="USD">$ USD (美元)</option>
+              <option value="EUR">€ EUR (欧元)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div>
+            <label class="field">起运标准 / 最低消费</label>
+            <input type="text" name="min_charge" id="quote-min" placeholder="例如：21KG起 / 1CBM起">
+          </div>
+          <div>
+            <label class="field">预计运输时效</label>
+            <input type="text" name="transit_time_text" id="quote-transit" placeholder="例如：12-15天 / 3-5工作日">
+          </div>
+          <div>
+            <label class="field">报价有效期至</label>
+            <input type="date" name="valid_until" id="quote-valid">
+          </div>
+        </div>
+
+        <div>
+          <label class="field">杂费 / 报关 / 双清说明</label>
+          <input type="text" name="extra_fees" id="quote-extra" placeholder="例如：双清包税；报关费350元/票；超长超重费另计">
+        </div>
+
+        <div>
+          <label class="field">补充备注</label>
+          <textarea name="remarks" id="quote-remarks" rows="2" placeholder="截单/装柜周期、派送范围限制等"></textarea>
+        </div>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button class="btn" type="button" onclick="closeQuoteModal()">取消</button>
+        <button class="btn primary" type="submit">保存报价方案</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// 复制文本辅助函数
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(function() {
+    alert("已复制：" + text);
+  }).catch(function() {
+    prompt("请手动复制：", text);
+  });
+}
+
+function copyQuoteSummary() {
+  var t = document.getElementById("quote-summary-text");
+  if (!t) return;
+  navigator.clipboard.writeText(t.value).then(function() {
+    var btn = document.getElementById("copy-btn");
+    var originText = btn.innerText;
+    btn.innerText = "✅ 已复制对比文案！";
+    setTimeout(function() { btn.innerText = originText; }, 2000);
+  }).catch(function() {
+    prompt("请全选复制以下对比方案：", t.value);
+  });
+}
+
+// 货代模态框
+function openNewForwarderModal() {
+  document.getElementById("modal-fwd-title").innerText = "新建货运代理";
+  document.getElementById("fwd-id").value = "";
+  document.getElementById("fwd-name").value = "";
+  document.getElementById("fwd-contact").value = "";
+  document.getElementById("fwd-phone").value = "";
+  document.getElementById("fwd-email").value = "";
+  document.getElementById("fwd-im").value = "";
+  document.getElementById("fwd-advantages").value = "";
+  document.getElementById("fwd-rating").value = "5";
+  document.getElementById("fwd-address").value = "";
+  document.getElementById("fwd-note").value = "";
+  document.getElementById("modal-fwd").style.display = "flex";
+}
+
+function openEditForwarderModal(fid) {
+  fetch("/api/freight/forwarder/" + fid).then(function(r){ return r.json(); }).then(function(data){
+    if (!data) return alert("获取货代数据失败");
+    document.getElementById("modal-fwd-title").innerText = "编辑货代：" + data.name;
+    document.getElementById("fwd-id").value = data.id;
+    document.getElementById("fwd-name").value = data.name || "";
+    document.getElementById("fwd-contact").value = data.contact_person || "";
+    document.getElementById("fwd-phone").value = data.phone || "";
+    document.getElementById("fwd-email").value = data.email || "";
+    document.getElementById("fwd-im").value = data.wechat_or_im || "";
+    document.getElementById("fwd-advantages").value = data.advantages || "";
+    document.getElementById("fwd-rating").value = data.rating || "5";
+    document.getElementById("fwd-address").value = data.address || "";
+    document.getElementById("fwd-note").value = data.note || "";
+    document.getElementById("modal-fwd").style.display = "flex";
+  }).catch(function(){ alert("无法加载货代信息"); });
+}
+
+function closeFwdModal() {
+  document.getElementById("modal-fwd").style.display = "none";
+}
+
+// 报价模态框
+function openNewQuoteModal() {
+  document.getElementById("modal-quote-title").innerText = "录入渠道报价";
+  document.getElementById("quote-id").value = "";
+  document.getElementById("quote-title").value = "";
+  document.getElementById("quote-channel").value = "sea";
+  document.getElementById("quote-origin").value = "深圳";
+  document.getElementById("quote-destination").value = "";
+  document.getElementById("quote-price").value = "";
+  document.getElementById("quote-unit").value = "kg";
+  document.getElementById("quote-currency").value = "CNY";
+  document.getElementById("quote-min").value = "";
+  document.getElementById("quote-transit").value = "";
+  document.getElementById("quote-valid").value = "";
+  document.getElementById("quote-extra").value = "";
+  document.getElementById("quote-remarks").value = "";
+  document.getElementById("modal-quote").style.display = "flex";
+}
+
+function openNewQuoteForForwarder(fid, fwdName) {
+  openNewQuoteModal();
+  document.getElementById("modal-quote-title").innerText = "为【" + fwdName + "】录入报价";
+  document.getElementById("quote-fid").value = fid;
+}
+
+function openEditQuoteModal(qid) {
+  fetch("/api/freight/quote/" + qid).then(function(r){ return r.json(); }).then(function(data){
+    if (!data) return alert("获取报价数据失败");
+    document.getElementById("modal-quote-title").innerText = "编辑报价：" + data.title;
+    document.getElementById("quote-id").value = data.id;
+    document.getElementById("quote-fid").value = data.forwarder_id;
+    document.getElementById("quote-title").value = data.title || "";
+    document.getElementById("quote-channel").value = data.channel_type || "sea";
+    document.getElementById("quote-origin").value = data.origin || "深圳";
+    document.getElementById("quote-destination").value = data.destination || "";
+    document.getElementById("quote-price").value = data.unit_price || "";
+    document.getElementById("quote-unit").value = data.price_unit || "kg";
+    document.getElementById("quote-currency").value = data.currency || "CNY";
+    document.getElementById("quote-min").value = data.min_charge || "";
+    document.getElementById("quote-transit").value = data.transit_time_text || "";
+    document.getElementById("quote-valid").value = data.valid_until || "";
+    document.getElementById("quote-extra").value = data.extra_fees || "";
+    document.getElementById("quote-remarks").value = data.remarks || "";
+    document.getElementById("modal-quote").style.display = "flex";
+  }).catch(function(){ alert("无法加载报价信息"); });
+}
+
+function closeQuoteModal() {
+  document.getElementById("modal-quote").style.display = "none";
+}
+</script>

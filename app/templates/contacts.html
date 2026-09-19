@@ -1,0 +1,319 @@
+<div class="page-head">
+  <div>
+    <h1>客户管理</h1>
+    <p class="sub">共 {{ data.total }} 位客户 · 销售线索全生命周期跟进与背调管理</p>
+  </div>
+  <div class="btn-row">
+    <button class="btn primary sm" type="button" onclick="openNewModal()">+ 新建客户</button>
+    <a class="btn sm" href="/contacts/export" download>导出 CSV</a>
+    <button class="btn sm danger" type="button" onclick="openClearModal()">清空客户数据</button>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+
+<div class="card">
+  <form method="get" action="/contacts">
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end;">
+      <div>
+        <label class="field">关键词检索</label>
+        <input type="text" name="q" value="{{ f.q }}" placeholder="邮箱 / 姓名 / 公司 / 国家">
+      </div>
+      <div>
+        <label class="field">跟进阶段</label>
+        <select name="stage">
+          <option value="">全部阶段</option>
+          <option value="new" {% if f.stage == 'new' %}selected{% endif %}>新客户 (new)</option>
+          <option value="engaging" {% if f.stage == 'engaging' %}selected{% endif %}>沟通中 (engaging)</option>
+          <option value="quoted" {% if f.stage == 'quoted' %}selected{% endif %}>已报价 (quoted)</option>
+          <option value="negotiating" {% if f.stage == 'negotiating' %}selected{% endif %}>洽谈中 (negotiating)</option>
+          <option value="won" {% if f.stage == 'won' %}selected{% endif %}>已成交 (won)</option>
+          <option value="lost" {% if f.stage == 'lost' %}selected{% endif %}>已流失 (lost)</option>
+          <option value="spam" {% if f.stage == 'spam' %}selected{% endif %}>垃圾客户 (spam)</option>
+        </select>
+      </div>
+      <div>
+        <label class="field">最低意向分</label>
+        <input type="number" name="min_score" value="{{ f.min_score }}" min="0" max="100" placeholder="0">
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn primary" type="submit">筛选</button>
+        {% if f.q or f.stage or f.min_score %}
+        <a class="btn" href="/contacts" style="display:inline-flex;align-items:center;">重置</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if data.items %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>客户</th>
+          <th>公司主体</th>
+          <th>国家 / 当地时间</th>
+          <th style="text-align:right;">意向分</th>
+          <th style="text-align:right;">往来</th>
+          <th>跟进阶段</th>
+          <th>最近联系</th>
+          <th style="text-align:right;min-width:140px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in data.items %}
+        <tr>
+          <td style="max-width:210px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="avatar">{{ initial(c.name or c.email) }}</div>
+              <div style="min-width:0;">
+                <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                  <a href="/contacts/{{ c.id }}">{{ c.name or c.email }}</a>
+                </div>
+                <div style="font-size:11px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                  {{ c.email }}
+                </div>
+              </div>
+            </div>
+          </td>
+          <td style="max-width:160px;font-size:12px;">
+            {{ c.company or '-' }}
+            {% if c.channel_role %}
+            <div style="font-size:10.5px;color:var(--accent);">{{ c.channel_role }}</div>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;white-space:nowrap;">
+            <div style="font-weight:500;">
+              {{ c.country or '-' }}
+            </div>
+            {% if c.local_time %}
+            <div style="margin-top:3px;">
+              {{{ c.local_time.badge_html }}}
+            </div>
+            {% endif %}
+          </td>
+          <td style="text-align:right;">
+            <span class="score {% if c.score >= 75 %}hi{% elif c.score >= 50 %}mid{% else %}lo{% endif %}"
+                  style="font-size:14px;">{{ c.score }}</span>
+          </td>
+          <td style="text-align:right;font-size:12px;white-space:nowrap;">
+            {{ c.msg_count }} 收 / {{ c.reply_count }} 回
+          </td>
+          <td>
+            <span class="tag {% if c.stage == 'won' %}s-sent{% elif c.stage == 'lost' or c.stage == 'spam' %}c-spam{% elif c.stage == 'quoted' or c.stage == 'negotiating' %}c-quote{% elif c.stage == 'engaging' %}c-inquiry{% else %}s-pending{% endif %}">
+              {% if c.stage == 'new' %}新客户
+              {% elif c.stage == 'engaging' %}沟通中
+              {% elif c.stage == 'quoted' %}已报价
+              {% elif c.stage == 'negotiating' %}洽谈中
+              {% elif c.stage == 'won' %}已成交
+              {% elif c.stage == 'lost' %}已流失
+              {% elif c.stage == 'spam' %}垃圾
+              {% else %}{{ c.stage }}
+              {% endif %}
+            </span>
+          </td>
+          <td style="font-size:11.5px;color:var(--text-3);white-space:nowrap;">{{{ ago(c.last_seen_ts) }}}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <div style="display:inline-flex;gap:4px;align-items:center;">
+              <a class="btn sm" href="/contacts/{{ c.id }}" style="padding:3px 8px;font-size:11.5px;">详情</a>
+              <button type="button" class="btn sm" style="padding:3px 8px;font-size:11.5px;"
+                      data-id="{{ c.id }}"
+                      data-email="{{ c.email }}"
+                      data-name="{{ c.name }}"
+                      data-company="{{ c.company }}"
+                      data-country="{{ c.country }}"
+                      data-stage="{{ c.stage }}"
+                      data-company_type="{{ c.company_type }}"
+                      data-channel_role="{{ c.channel_role }}"
+                      data-credibility="{{ c.credibility }}"
+                      data-note="{{ c.note }}"
+                      onclick="openEditModal(this)">编辑</button>
+              <form method="post" action="/contacts/{{ c.id }}/delete" style="margin:0;display:inline;"
+                    onsubmit="return confirm('确定彻底删除客户 [{{ c.email }}] 及其名下所有邮件和线索吗？此操作不可恢复。');">
+                <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+                <button type="submit" class="btn sm danger" style="padding:3px 8px;font-size:11.5px;">删除</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if data.pages > 1 %}
+  <div class="pager">
+    {% if data.page > 1 %}
+    <a href="/contacts?page={{ data.page - 1 }}&q={{ f.q }}&stage={{ f.stage }}&min_score={{ f.min_score }}">上一页</a>
+    {% endif %}
+    <span class="cur">{{ data.page }} / {{ data.pages }}</span>
+    {% if data.page < data.pages %}
+    <a href="/contacts?page={{ data.page + 1 }}&q={{ f.q }}&stage={{ f.stage }}&min_score={{ f.min_score }}">下一页</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="empty" style="padding:40px 20px;text-align:center;">
+    <div style="font-size:14px;color:var(--text-2);margin-bottom:8px;">暂无客户数据</div>
+    <div style="font-size:12px;color:var(--text-3);margin-bottom:16px;">当有客户来信时系统将自动沉淀建档，您也可以手动录入客户。</div>
+    <button class="btn primary sm" type="button" onclick="openNewModal()">+ 手动新建客户</button>
+  </div>
+  {% endif %}
+</div>
+
+<!-- 新建/编辑客户 模态弹窗 -->
+<div id="contact-modal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:999;align-items:center;justify-content:center;padding:16px;">
+  <div class="modal-card" style="background:var(--surface);border-radius:var(--radius);max-width:540px;width:100%;max-height:90vh;overflow-y:auto;border:1px solid var(--border-strong);box-shadow:0 8px 30px rgba(0,0,0,0.16);padding:22px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2 id="modal-title" style="margin:0;font-size:16px;">新建客户</h2>
+      <button type="button" onclick="closeModal('contact-modal')" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-3);">&times;</button>
+    </div>
+    <form method="post" action="/contacts/save">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <input type="hidden" id="form-contact-id" name="contact_id" value="">
+
+      <div class="form-row">
+        <label class="field">客户邮箱 <span style="color:var(--danger)">*</span></label>
+        <input type="email" id="form-email" name="email" required placeholder="如 client@example.com">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">联系人姓名</label>
+          <input type="text" id="form-name" name="name" placeholder="如 John Smith">
+        </div>
+        <div>
+          <label class="field">国家 / 地区</label>
+          <input type="text" id="form-country" name="country" placeholder="如 德国、美国、阿联酋、Germany (自动识别当地时间)">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" class="form-row">
+        <div>
+          <label class="field">公司主体</label>
+          <input type="text" id="form-company" name="company" placeholder="如 Acme Corp LLC">
+        </div>
+        <div>
+          <label class="field">跟进阶段</label>
+          <select id="form-stage" name="stage">
+            <option value="new">新客户 (new)</option>
+            <option value="engaging">沟通中 (engaging)</option>
+            <option value="quoted">已报价 (quoted)</option>
+            <option value="negotiating">洽谈中 (negotiating)</option>
+            <option value="won">已成交 (won)</option>
+            <option value="lost">已流失 (lost)</option>
+            <option value="spam">垃圾客户 (spam)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;" class="form-row">
+        <div>
+          <label class="field">渠道身份</label>
+          <select id="form-channel-role" name="channel_role">
+            <option value="">未指定</option>
+            <option value="经销商">经销商</option>
+            <option value="批发商">批发商</option>
+            <option value="进口商">进口商</option>
+            <option value="零售商">零售商</option>
+            <option value="贸易商">贸易商</option>
+            <option value="终端用户">终端用户</option>
+            <option value="OEM/ODM">OEM/ODM</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">企业类型</label>
+          <input type="text" id="form-company-type" name="company_type" placeholder="如 德国企业/美国企业">
+        </div>
+        <div>
+          <label class="field">初步可信度</label>
+          <select id="form-credibility" name="credibility">
+            <option value="">未评估</option>
+            <option value="高">高</option>
+            <option value="中">中</option>
+            <option value="低">低</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="field">客户备注与背景要点</label>
+        <textarea id="form-note" name="note" rows="3" placeholder="采购意向偏好、主要规格需求、特别跟进注意事项等"></textarea>
+      </div>
+
+      <div class="btn-row" style="justify-content:flex-end;margin-top:18px;">
+        <button type="button" class="btn" onclick="closeModal('contact-modal')">取消</button>
+        <button type="submit" class="btn primary">保存提交</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 清空客户数据 二次确认模态弹窗 -->
+<div id="clear-modal" class="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:999;align-items:center;justify-content:center;padding:16px;">
+  <div class="modal-card" style="background:var(--surface);border-radius:var(--radius);max-width:440px;width:100%;border:1px solid var(--border-strong);box-shadow:0 8px 30px rgba(0,0,0,0.2);padding:22px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <span style="font-size:20px;color:var(--danger);">⚠️</span>
+      <h2 style="margin:0;font-size:16px;color:var(--danger);">清空客户数据警告</h2>
+    </div>
+    <p style="font-size:12.5px;color:var(--text-2);line-height:1.6;margin-bottom:14px;">
+      此操作将<strong>永久清除本地全部客户档案、往来邮件记录、回复草稿与会话线索</strong>。邮箱配置、规则引擎及系统设置不受影响。
+    </p>
+    <form method="post" action="/contacts/clear">
+      <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+      <div class="form-row">
+        <label class="field" style="color:var(--text-1);">请输入 <b style="color:var(--danger);">CLEAR</b> 确认执行：</label>
+        <input type="text" name="confirm" required placeholder="CLEAR" autocomplete="off">
+      </div>
+      <div class="btn-row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn" onclick="closeModal('clear-modal')">取消</button>
+        <button type="submit" class="btn danger">确认彻底清空</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openNewModal() {
+  document.getElementById('modal-title').innerText = '新建客户';
+  document.getElementById('form-contact-id').value = '';
+  document.getElementById('form-email').value = '';
+  document.getElementById('form-name').value = '';
+  document.getElementById('form-company').value = '';
+  document.getElementById('form-country').value = '';
+  document.getElementById('form-stage').value = 'new';
+  document.getElementById('form-channel-role').value = '';
+  document.getElementById('form-company-type').value = '';
+  document.getElementById('form-credibility').value = '';
+  document.getElementById('form-note').value = '';
+  document.getElementById('contact-modal').style.display = 'flex';
+}
+
+function openEditModal(btn) {
+  document.getElementById('modal-title').innerText = '编辑客户信息';
+  document.getElementById('form-contact-id').value = btn.getAttribute('data-id') || '';
+  document.getElementById('form-email').value = btn.getAttribute('data-email') || '';
+  document.getElementById('form-name').value = btn.getAttribute('data-name') || '';
+  document.getElementById('form-company').value = btn.getAttribute('data-company') || '';
+  document.getElementById('form-country').value = btn.getAttribute('data-country') || '';
+  document.getElementById('form-stage').value = btn.getAttribute('data-stage') || 'new';
+  document.getElementById('form-channel-role').value = btn.getAttribute('data-channel_role') || '';
+  document.getElementById('form-company-type').value = btn.getAttribute('data-company_type') || '';
+  document.getElementById('form-credibility').value = btn.getAttribute('data-credibility') || '';
+  document.getElementById('form-note').value = btn.getAttribute('data-note') || '';
+  document.getElementById('contact-modal').style.display = 'flex';
+}
+
+function openClearModal() {
+  document.getElementById('clear-modal').style.display = 'flex';
+}
+
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
+</script>
+

@@ -1,0 +1,496 @@
+<div class="page-head">
+  <div>
+    <h1>系统设置</h1>
+    <p class="sub">邮箱接入、全局开关、签名</p>
+  </div>
+</div>
+
+{% if ok %}<div class="alert ok">{{ ok }}</div>{% endif %}
+{% if err %}<div class="alert err">{{ err }}</div>{% endif %}
+{% if test %}<div class="alert info">{{ test }}</div>{% endif %}
+
+<div class="card">
+  <h2>邮箱账户</h2>
+
+  {% if not accounts %}
+  <div class="alert warn">
+    还没有配置邮箱。填好下面信息并保存后，系统就能开始收信。
+  </div>
+  {% else %}
+  <div class="hint" style="margin-bottom:10px;">
+    已添加 <strong>{{ accounts | length }}</strong> 个邮箱，系统会并行收取全部「已启用」账户的来信。
+  </div>
+  {% endif %}
+
+  {% if accounts %}
+  <div class="acct-list">
+    {% for a in accounts %}
+    <div class="acct-item{% if not a.is_active %} off{% endif %}">
+      <div class="acct-main">
+        <div class="acct-top">
+          <span class="acct-mail">{{ a.email }}</span>
+          {% if a.is_active %}
+          <span class="acct-badge on">已启用</span>
+          {% else %}
+          <span class="acct-badge off">已停用</span>
+          {% endif %}
+          {% if a.last_error %}
+          <span class="acct-badge err">异常</span>
+          {% endif %}
+        </div>
+        <div class="acct-meta">
+          {% if a.display_name %}发件人：{{ a.display_name }} · {% endif %}
+          收信 {{ a.msg_count }} 封
+          · 最近同步 {{{ ts_full(a.last_sync_ts) }}}
+        </div>
+        <div class="acct-secret">
+          <span class="k">授权码</span>
+          {% if not a.secret_ok %}
+          <span class="v warn-text">无法解密（密钥已更换，请重新填写）</span>
+          {% else %}
+          <code class="v masked" data-full="{{ a.secret_plain }}">{{ a.secret_masked }}</code>
+          <button type="button" class="mini-btn toggle-secret"
+                  data-target="1">显示</button>
+          {% endif %}
+        </div>
+        {% if a.last_error %}
+        <div class="acct-err">上次收信出错：{{ a.last_error }}</div>
+        {% endif %}
+      </div>
+      <div class="acct-ops">
+        <form method="post" action="/settings/account/{{ a.id }}/test" style="margin:0;">
+          <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+          <button class="mini-btn" type="submit">测试</button>
+        </form>
+        <button type="button" class="mini-btn edit-acct"
+                data-id="{{ a.id }}"
+                data-email="{{ a.email }}"
+                data-name="{{ a.display_name or '' }}"
+                data-folder="{{ a.watch_folder }}"
+                data-imap="{{ a.imap_host }}"
+                data-smtp="{{ a.smtp_host }}">编辑</button>
+        <form method="post" action="/settings/account/{{ a.id }}/toggle" style="margin:0;">
+          <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+          <button class="mini-btn" type="submit">
+            {% if a.is_active %}停用{% else %}启用{% endif %}
+          </button>
+        </form>
+        <form method="post" action="/settings/account/{{ a.id }}/delete" style="margin:0;"
+              onsubmit="return confirm('彻底删除 {{ a.email }} ？\n该账户名下 {{ a.msg_count }} 封邮件与相关草稿会一并删除，不可恢复。\n\n如果只是想停止收信，请改用「停用」。');">
+          <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+          <button class="mini-btn danger" type="submit">删除</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="acct-form-head" id="acctFormHead">
+    <strong>新增邮箱账户</strong>
+    <span class="hint" style="margin:0;">填完点「添加账户」</span>
+  </div>
+
+  <form method="post" action="/settings/account" id="acctForm">
+    <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+    <input type="hidden" name="account_id" id="acctId" value="">
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;">
+      <div>
+        <label class="field">邮箱服务商</label>
+        <select name="preset" id="presetSel">
+          {% for k, p in presets.items() %}
+          <option value="{{ k }}">{{ p.label }}</option>
+          {% endfor %}
+        </select>
+        <div class="hint" id="presetHelp">
+          QQ 邮箱：设置 → 账户 → 开启 IMAP/SMTP 服务 → 生成 16 位授权码
+        </div>
+      </div>
+      <div>
+        <label class="field">邮箱地址</label>
+        <input type="email" name="email" id="acctEmail" value=""
+               placeholder="your@qq.com" autocomplete="off" required>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;">
+      <div>
+        <label class="field">发件人显示名</label>
+        <input type="text" name="display_name" id="acctName" value=""
+               placeholder="例如 Davy / Your Company">
+      </div>
+      <div>
+        <label class="field">授权码 / 应用密码</label>
+        <input type="password" name="secret" id="acctSecret" value=""
+               placeholder="粘贴授权码" autocomplete="new-password">
+        <div class="hint" id="secretHint">
+          不是邮箱登录密码。QQ 邮箱是 16 位授权码；Outlook 是应用密码。
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;">
+      <div>
+        <label class="field">监听文件夹</label>
+        <input type="text" name="watch_folder" id="acctFolder" value="INBOX">
+      </div>
+      <div>
+        <label class="field">回溯天数</label>
+        <input type="number" name="lookback_days" value="7" min="1" max="90">
+        <div class="hint">保存后只处理这个天数之后的新邮件，避免一次性拉入历史邮件。</div>
+      </div>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn primary" type="submit" id="acctSubmit">添加账户</button>
+      <button class="btn" type="button" id="acctCancel" style="display:none;">取消编辑</button>
+    </div>
+    <div class="hint" style="margin-top:8px;">
+      多个账户会同时收信；发信时使用「草稿所属的那封来信」对应的账户。
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2>全局开关</h2>
+  <form method="post" action="/settings/global">
+    <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+
+    <div class="form-row">
+      <label style="display:flex;align-items:flex-start;gap:9px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" name="auto_send" value="1"
+               {{{ checked(settings.auto_send == '1') }}} style="width:auto;margin-top:3px;">
+        <span>
+          <strong>允许全自动发送</strong>
+          <span style="display:block;font-size:11.5px;color:var(--text-3);margin-top:2px;">
+            关闭时（推荐）：所有回复都先进审核台，由你确认后才发出。<br>
+            开启后：命中 <code>auto_reply</code> 规则的邮件会直接发给客户，不再询问。
+            建议先跑一两周，确认 AI 回复质量稳定后再打开。
+          </span>
+        </span>
+      </label>
+    </div>
+
+    <div class="form-row">
+      <label class="field">高意向分数线</label>
+      <input type="number" name="high_intent" value="{{ settings.high_intent or 70 }}"
+             min="1" max="100" style="max-width:160px;">
+      <div class="hint">意向分达到此值的邮件会标为「高意向」，在看板上高亮。</div>
+    </div>
+
+    <div class="form-row">
+      <label class="field">邮件签名</label>
+      <textarea name="reply_signature" rows="4" style="min-height:80px;">{{ settings.reply_signature }}</textarea>
+      <div class="hint">
+        <code>{sender_name}</code> 会被替换为发件人显示名。中文可用「此致」等。
+      </div>
+    </div>
+
+    <button class="btn primary" type="submit">保存设置</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>AI 模型</h2>
+
+  {% if ai_conf.configured %}
+  <div class="alert ok" style="margin-bottom:14px;">
+    当前状态：<strong>{{ ai_status }}</strong>
+  </div>
+  {% else %}
+  <div class="alert warn" style="margin-bottom:14px;">
+    尚未配置模型 API Key。当前中文摘要与客户背调走<strong>规则降级模式</strong>：
+    摘要不翻译正文、背调只做域名推断。
+    <br>填入 Key 后，摘要会自动翻译成中文，背调也会给出更完整的判断。
+  </div>
+  {% endif %}
+
+  <div class="saved-box">
+    <div class="saved-title">当前已保存的配置</div>
+    <div class="saved-grid">
+      <div class="saved-item">
+        <span class="k">服务商</span>
+        <span class="v">
+          {% if ai_conf.configured %}{{ ai_conf.preset_label }}{% else %}—{% endif %}
+        </span>
+      </div>
+      <div class="saved-item">
+        <span class="k">模型</span>
+        <span class="v">
+          {% if ai_conf.configured %}
+          <code>{{ ai_conf.model }}</code>
+          {% else %}—{% endif %}
+        </span>
+      </div>
+      <div class="saved-item wide">
+        <span class="k">API 地址</span>
+        <span class="v">
+          {% if ai_conf.configured %}
+          <code>{{ ai_conf.base_url }}</code>
+          {% else %}—{% endif %}
+        </span>
+      </div>
+      <div class="saved-item wide">
+        <span class="k">API Key</span>
+        <span class="v">
+          {% if ai_conf.key_ok %}
+          <code class="masked" data-full="{{ ai_conf.key_plain }}">{{ ai_conf.key_masked }}</code>
+          <button type="button" class="mini-btn toggle-secret" data-target="1">显示</button>
+          <span class="saved-tag">{{ ai_conf.key_len }} 位</span>
+          {% if ai_conf.key_from_env %}
+          <span class="saved-tag">来自环境变量</span>
+          {% endif %}
+          {% elif ai_conf.key_unreadable %}
+          <span class="warn-text">密文无法解密（加密密钥已更换，请重新填写）</span>
+          {% else %}
+          <span class="muted">未配置</span>
+          {% endif %}
+        </span>
+      </div>
+      <div class="saved-item">
+        <span class="k">启用状态</span>
+        <span class="v">
+          {% if ai_conf.enabled %}
+          <span class="acct-badge on">已启用</span>
+          {% else %}
+          <span class="acct-badge off">未启用</span>
+          {% endif %}
+        </span>
+      </div>
+    </div>
+    {% if ai_conf.configured %}
+    <div class="hint" style="margin-top:8px;">
+      留空 Key 框并保存 = 沿用上面这份密钥；想换直接粘新的覆盖。
+    </div>
+    {% endif %}
+  </div>
+
+  <form method="post" action="/settings/ai">
+    <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;">
+      <div>
+        <label class="field">服务商预设</label>
+        <select name="preset" id="aiPresetSel">
+          {% for k, p in ai_presets.items() %}
+          <option value="{{ k }}" {{{ sel(ai_conf.preset, k) }}}>{{ p.label }}</option>
+          {% endfor %}
+        </select>
+        <div class="hint" id="aiPresetHelp">选择预设会自动填好下方地址与模型名，你只需粘贴 Key。</div>
+      </div>
+      <div>
+        <label class="field">API Key</label>
+        <input type="password" name="api_key" value=""
+               placeholder="{% if ai_conf.configured %}已保存，留空则不修改{% else %}粘贴 API Key{% endif %}"
+               autocomplete="new-password">
+        <div class="hint">
+          密钥经 AES-256-GCM 加密后存库。<br>
+          {% if ai_conf.key_url %}
+          获取地址：<a href="{{ ai_conf.key_url }}" target="_blank" rel="noopener">{{ ai_conf.key_url }}</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;">
+      <div>
+        <label class="field">API 地址（Base URL）</label>
+        <input type="text" name="base_url" id="aiBaseUrl" value="{{ ai_conf.base_url }}"
+               placeholder="https://api.deepseek.com" autocomplete="off">
+        <div class="hint">兼容 OpenAI 格式的服务地址，无需带 /chat/completions。</div>
+      </div>
+      <div>
+        <label class="field">模型名</label>
+        <input type="text" name="model" id="aiModel" value="{{ ai_conf.model }}"
+               placeholder="deepseek-chat" autocomplete="off">
+        <div class="hint">填服务商文档里的模型 ID，例如 deepseek-chat、qwen-plus、glm-4-flash。</div>
+      </div>
+    </div>
+
+    <div class="form-row" style="margin-top:14px;">
+      <label style="display:flex;align-items:flex-start;gap:9px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" name="enabled" value="1"
+               {{{ checked(ai_conf.enabled) }}} style="width:auto;margin-top:3px;">
+        <span>
+          <strong>启用模型分析</strong>
+          <span style="display:block;font-size:11.5px;color:var(--text-3);margin-top:2px;">
+            用于中文摘要、客户背调、意向打分。关闭后全部退回规则模式，不消耗任何额度。
+          </span>
+        </span>
+      </label>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn primary" type="submit">保存 AI 配置</button>
+    </div>
+  </form>
+
+  <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <form method="post" action="/settings/ai/test" style="margin:0;">
+        <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+        <button class="btn" type="submit">测试连接</button>
+      </form>
+      <form method="post" action="/settings/ai/reprocess" style="margin:0;"
+            onsubmit="return confirm('将重新分析最近 50 封邮件，生成中文摘要与客户背调。会消耗模型额度，确认继续？');">
+        <input type="hidden" name="csrf_tok" value="{{ csrf }}">
+        <button class="btn" type="submit">补跑中文摘要 + 客户背调</button>
+      </form>
+    </div>
+    <div class="hint">
+      刚配好 Key 时点第二个按钮，把历史邮件一次性补上中文摘要与背调（最近 50 封）。
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>授权码获取指引</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>服务商</th><th>操作路径</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>QQ 邮箱</td>
+          <td style="font-size:12px;">
+            网页登录 mail.qq.com → 右上角设置 → <strong>账户</strong> →
+            找到「POP3/IMAP/SMTP 服务」→ 开启 <strong>IMAP/SMTP 服务</strong> →
+            按提示发短信验证 → 生成 <strong>16 位授权码</strong>（只显示一次，立即复制）
+          </td>
+        </tr>
+        <tr>
+          <td>腾讯企业邮箱</td>
+          <td style="font-size:12px;">
+            邮箱 → 设置 → 客户端设置 → 开启 IMAP/SMTP → 生成专用密码
+          </td>
+        </tr>
+        <tr>
+          <td>Outlook</td>
+          <td style="font-size:12px;">
+            account.microsoft.com/security → 开启<strong>双重验证</strong> →
+            高级安全选项 → <strong>创建新应用密码</strong> → 复制 16 位密码<br>
+            <span style="color:var(--warn);">注意：微软正逐步收紧基础认证，
+            个人账户可用，部分企业租户需管理员开启 SMTP AUTH。</span>
+          </td>
+        </tr>
+        <tr>
+          <td>阿里云企业邮箱</td>
+          <td style="font-size:12px;">
+            设置 → 客户端设置 → 生成专用密码
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="hint" style="margin-top:12px;">
+    💡 外贸企业中英文主体抬头、出海联系信息与美金电汇收款账户已独立移至左侧导航「<a href="/company">公司管理</a>」模块统一维护。
+  </div>
+</div>
+
+
+<script>
+(function(){
+  var help = {
+    qq: 'QQ 邮箱：设置 → 账户 → 开启 IMAP/SMTP 服务 → 生成 16 位授权码',
+    '163': '网易 163：设置 → POP3/SMTP/IMAP → 开启 IMAP/SMTP → 获取授权码',
+    outlook: '需先开启双重验证 → 生成应用密码（App Password）',
+    exmail: '腾讯企业邮箱：邮箱设置 → 客户端设置 → 生成专用密码',
+    aliyun: '阿里云企业邮箱：设置 → 客户端设置 → 生成专用密码',
+    custom: '手动填写服务器地址与端口'
+  };
+  var sel = document.getElementById('presetSel');
+  var el = document.getElementById('presetHelp');
+  if (sel && el) {
+    sel.addEventListener('change', function(){ el.textContent = help[sel.value] || ''; });
+  }
+
+  // AI 服务商预设：切换时把地址与模型名填进输入框，Key 不动（由用户粘贴）
+  var aiPresets = {{{ ai_presets_json }}};
+  var aiSel = document.getElementById('aiPresetSel');
+  var aiBase = document.getElementById('aiBaseUrl');
+  var aiModel = document.getElementById('aiModel');
+  var aiHelp = document.getElementById('aiPresetHelp');
+  if (aiSel && aiBase && aiModel) {
+    aiSel.addEventListener('change', function(){
+      var p = aiPresets[aiSel.value];
+      if (!p) return;
+      if (p.base_url) aiBase.value = p.base_url;
+      if (p.model) aiModel.value = p.model;
+      aiHelp.textContent = p.hint || '';
+    });
+  }
+
+  // ============ 凭据打码的「显示 / 隐藏」切换 ============
+  // 明文放在 data-full 里，点击后才写进 DOM 可见文本。
+  document.querySelectorAll('.toggle-secret').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var box = btn.parentElement.querySelector('.masked');
+      if (!box) return;
+      var full = box.getAttribute('data-full') || '';
+      var shown = box.getAttribute('data-shown') === '1';
+      if (shown) {
+        box.textContent = box.getAttribute('data-mask') || '****';
+        box.setAttribute('data-shown', '0');
+        btn.textContent = '显示';
+      } else {
+        if (!box.getAttribute('data-mask')) {
+          box.setAttribute('data-mask', box.textContent.trim());
+        }
+        box.textContent = full || '（空）';
+        box.setAttribute('data-shown', '1');
+        btn.textContent = '隐藏';
+      }
+    });
+  });
+
+  // ============ 邮箱账户：编辑 / 取消编辑 ============
+  var acctForm = document.getElementById('acctForm');
+  var acctId = document.getElementById('acctId');
+  var acctEmail = document.getElementById('acctEmail');
+  var acctName = document.getElementById('acctName');
+  var acctFolder = document.getElementById('acctFolder');
+  var acctSecret = document.getElementById('acctSecret');
+  var acctSubmit = document.getElementById('acctSubmit');
+  var acctCancel = document.getElementById('acctCancel');
+  var acctHead = document.getElementById('acctFormHead');
+  var secretHint = document.getElementById('secretHint');
+
+  function resetAcctForm() {
+    if (!acctForm) return;
+    acctId.value = '';
+    acctEmail.value = '';
+    acctName.value = '';
+    acctFolder.value = 'INBOX';
+    acctSecret.value = '';
+    acctSecret.placeholder = '粘贴授权码';
+    acctSubmit.textContent = '添加账户';
+    acctCancel.style.display = 'none';
+    secretHint.textContent =
+      '不是邮箱登录密码。QQ 邮箱是 16 位授权码；Outlook 是应用密码。';
+    if (acctHead) acctHead.innerHTML =
+      '<strong>新增邮箱账户</strong>' +
+      '<span class="hint" style="margin:0;">填完点「添加账户」</span>';
+  }
+
+  document.querySelectorAll('.edit-acct').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      acctId.value = btn.getAttribute('data-id');
+      acctEmail.value = btn.getAttribute('data-email');
+      acctName.value = btn.getAttribute('data-name');
+      acctFolder.value = btn.getAttribute('data-folder');
+      acctSecret.value = '';
+      acctSecret.placeholder = '已保存，留空则不修改';
+      acctSubmit.textContent = '保存修改';
+      acctCancel.style.display = '';
+      secretHint.textContent =
+        '留空表示沿用已保存的授权码；要换就粘贴新的。';
+      if (acctHead) acctHead.innerHTML =
+        '<strong>编辑：' + btn.getAttribute('data-email') + '</strong>' +
+        '<span class="hint" style="margin:0;">改完点「保存修改」</span>';
+      acctForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+
+  if (acctCancel) acctCancel.addEventListener('click', resetAcctForm);
+})();
+</script>
